@@ -1,6 +1,6 @@
 --[[
     ComitHub - Versão Injetada (Visual Original 100% Preservado)
-    - Mantém a UI e Funcionamento idênticos à print enviada
+    - Mantém a UI e Funcionamento idênticos ao script original
     - Adiciona: Trava de Execução (Erro 448), Compartilhamento de Dados, Engrenagem e Botão Arrastável
 ]]
 
@@ -13,7 +13,7 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- 1. SISTEMA DE TRAVA DE EXECUÇÃO (ERRO 448)
+-- 1. SISTEMA DE TRAVA DE EXECUÇÃO (ERRO 448) - Habilitado por Padrão
 if playerGui:FindFirstChild("ComitHubUI") then
     local errorGui = Instance.new("ScreenGui")
     errorGui.Name = "ComitHubError"
@@ -101,7 +101,7 @@ settingsButton.BackgroundTransparency = 1
 settingsButton.Image = "rbxassetid://6031289717"
 settingsButton.ImageColor3 = Color3.fromRGB(200, 200, 200)
 
--- 3. CRIAR MENU DE CONFIGURAÇÕES (ESTILO ORIGINAL DA PRINT)
+-- 3. CRIAR MENU DE CONFIGURAÇÕES (ESTILO ORIGINAL)
 local settingsFrame = Instance.new("Frame")
 settingsFrame.Name = "SettingsFrame"
 settingsFrame.Parent = main
@@ -215,7 +215,7 @@ settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
 end)
 
--- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL DA PRINT)
+-- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL)
 local function createInjectedSection(text)
     local section = Instance.new("Frame", scrolling)
     section.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
