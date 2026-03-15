@@ -62,7 +62,7 @@ local alturaMin = 0.05
 local alturaMax = 8
 local velocityMult = 0.025
 local velocityMult2 = 0.150
-local currentSuspension = 0
+local currentSuspension = 2.5
 local currentSpeed = 25
 local currentBrake = 150
 
