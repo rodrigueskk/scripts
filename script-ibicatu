@@ -3,6 +3,15 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
+pcall(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "ComitHub Executado",
+        Text = "Feito Por Rodrigues",
+        Duration = 5
+    })
+end)
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu" ))()
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
