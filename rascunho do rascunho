@@ -13,6 +13,7 @@ local alturaMax = 8
 local velocityMult = 0.025
 local velocityMult2 = 0.150
 local currentSuspension = 0
+local currentWheelSpacing = 0
 local currentSpeed = 25
 local currentBrake = 150
 
@@ -542,7 +543,104 @@ createButton(perfSection, "Parar Veículo (P)", function()
     end
 end)
 
--- Loop de Velocidade e Frenagem (Multiplicadores)
+local originalWheelPositions = {}
+
+local function getWheels(vehicle)
+    local wheels = {}
+    for _, part in ipairs(vehicle:GetDescendants()) do
+        if part:IsA("Part") or part:IsA("MeshPart") then
+            local tag = tagDaRoda(string.upper(part.Name))
+            if tag then
+                wheels[tag] = part
+                if not originalWheelPositions[part] then
+                    originalWheelPositions[part] = part.CFrame
+                end
+            end
+        end
+    end
+    return wheels
+end
+
+local function applyWheelSpacing(spacing)
+    currentWheelSpacing = spacing
+    local vehicle = getVehicle()
+    if not vehicle then return end
+
+    local wheels = getWheels(vehicle)
+
+    for tag, wheel in pairs(wheels) do
+        local originalCFrame = originalWheelPositions[wheel]
+        if originalCFrame then
+            local offset = Vector3.new(0, 0, 0)
+            -- FL e RL para a esquerda, FR e RR para a direita
+            if tag == "FL" or tag == "RL" then
+                offset = Vector3.new(-spacing, 0, 0)
+            elseif tag == "FR" or tag == "RR" then
+                offset = Vector3.new(spacing, 0, 0)
+            end
+            wheel.CFrame = originalCFrame * CFrame.new(offset)
+        end
+    end
+end
+
+local wheelSpacingSection = createSection("Espaçamento das Rodas")
+createSlider(wheelSpacingSection, {
+    Title = "Espaçamento",
+    Min = 0,
+    Max = 5,
+    Step = 0.1,
+    Default = 0,
+    Format = "%.1f",
+    Changed = function(v)
+        currentWheelSpacing = v
+    end
+})
+
+local plateSection = createSection("Emplacamento")
+
+local plateTextBox = Instance.new("TextBox")
+plateTextBox.Parent = plateSection
+plateTextBox.Size = UDim2.new(1, 0, 0, 34)
+plateTextBox.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+plateTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+plateTextBox.PlaceholderText = "Digite o texto da placa"
+plateTextBox.Text = ""
+plateTextBox.Font = Enum.Font.Gotham
+plateTextBox.TextSize = 14
+plateTextBox.BorderSizePixel = 0
+
+local plateCorner = Instance.new("UICorner")
+plateCorner.CornerRadius = UDim.new(0, 10)
+plateCorner.Parent = plateTextBox
+
+createButton(plateSection, "Aplicar Placa", function()
+    local plateText = plateTextBox.Text
+    local vehicle = getVehicle()
+    if not vehicle then return end
+
+    local body = vehicle:FindFirstChild("Body")
+    if not body then return end
+
+    local placaBR = body:FindFirstChild("PlacaBR")
+    if not placaBR then return end
+
+    local plates = placaBR:FindFirstChild("Plates")
+    if not plates then return end
+
+    for _, part in ipairs(plates:GetChildren()) do
+        if part:IsA("Model") and (part.Name == "Front" or part.Name == "Rear") then
+            local sgui = part:FindFirstChild("SGUI")
+            if sgui then
+                local identifier = sgui:FindFirstChild("Identifier")
+                if identifier and identifier:IsA("TextLabel") then
+                    identifier.Text = plateText
+                end
+            end
+        end
+    end
+end)
+
+-- Loop de Atualização (Física e Espaçamento)
 RunService.Stepped:Connect(function()
     local vehicle = getVehicle()
     if not vehicle then return end
@@ -558,78 +656,10 @@ RunService.Stepped:Connect(function()
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
         seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
+
+    -- Aplicar espaçamento das rodas continuamente para forçar no cliente
+    applyWheelSpacing(currentWheelSpacing)
 end)
-
-local wheelSpacingSection = createSection("Espaçamento das Rodas")
-createSlider(wheelSpacingSection, {
-    Title = "Espaçamento",
-    Min = 0,
-    Max = 5,
-    Step = 0.1,
-    Default = 0,
-    Format = "%.1f",
-    Changed = function(v)
-        applyWheelSpacing(v)
-    end
-})
-
-local originalWheelOffsets = {}
-
-local function getWheelWeld(wheel)
-    for _, joint in ipairs(wheel:GetJoints()) do
-        if joint:IsA("Weld") or joint:IsA("WeldConstraint") then
-            if joint.Part0 == wheel or joint.Part1 == wheel then
-                return joint
-            end
-        end
-    end
-    return nil
-end
-
-local function getWheels(vehicle)
-    local wheels = {}
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("Part") or part:IsA("MeshPart") then
-            local tag = tagDaRoda(string.upper(part.Name))
-            if tag then
-                wheels[tag] = part
-                local weld = getWheelWeld(part)
-                if weld and not originalWheelOffsets[weld] then
-                    originalWheelOffsets[weld] = weld.C1
-                end
-            end
-        end
-    end
-    return wheels
-end
-
-local function applyWheelSpacing(spacing)
-    local vehicle = getVehicle()
-    if not vehicle then return end
-
-    local wheels = getWheels(vehicle)
-
-    for tag, wheel in pairs(wheels) do
-        local weld = getWheelWeld(wheel)
-        if weld then
-            local originalOffset = originalWheelOffsets[weld]
-            if originalOffset then
-                local offsetVector = Vector3.new(0, 0, 0)
-                -- As rodas FL e RL devem se mover para a esquerda (negativo no eixo X local do veículo)
-                -- As rodas FR e RR devem se mover para a direita (positivo no eixo X local do veículo)
-                if tag == "FL" or tag == "RL" then
-                    offsetVector = Vector3.new(-spacing, 0, 0)
-                elseif tag == "FR" or tag == "RR" then
-                    offsetVector = Vector3.new(spacing, 0, 0)
-                end
-                
-                -- Modificar o C1 do Weld para mover a roda em relação ao seu Part0 (geralmente o chassi)
-                -- Isso deve replicar para outros clientes se o veículo tiver NetworkOwnership do jogador.
-                weld.C1 = originalOffset * CFrame.new(offsetVector)
-            end
-        end
-    end
-end
 
 local footer = Instance.new("TextLabel")
 footer.Parent = scrolling
