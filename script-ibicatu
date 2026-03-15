@@ -1,0 +1,1072 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local teclaAbrir = Enum.KeyCode.RightShift
+
+local eixoCamber = "Z"
+local inverterLadoDireito = true
+
+local alturaMin = 0.05
+local alturaMax = 8
+
+local suavidadeAr = 28
+local suavidadeArrasto = 30
+
+local alturaPadrao = 2.5
+local camberPadrao = -15
+
+local presets = {
+	{nome = "AUDI RS-Q8", altura = 1, camber = -15},
+}
+
+local tokensRoda = {
+	FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
+	FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
+	RL = {"RL","REARLEFT","REAR_LEFT","LEFTREAR","LEFT_REAR","BACKLEFT","BACK_LEFT"},
+	RR = {"RR","REARRIGHT","REAR_RIGHT","RIGHTREAR","RIGHT_REAR","BACKRIGHT","BACK_RIGHT"},
+}
+
+local function numero(texto)
+	texto = tostring(texto or ""):gsub(",", ".")
+	texto = texto:match("^%s*(.-)%s*$")
+	return tonumber(texto)
+end
+
+local function clamp(n, a, b)
+	if n < a then return a end
+	if n > b then return b end
+	return n
+end
+
+local function tagDaRoda(nomeUpper)
+	for tag, lista in pairs(tokensRoda) do
+		for _, t in ipairs(lista) do
+			if nomeUpper:find(t, 1, true) then
+				return tag
+			end
+		end
+	end
+	return nil
+end
+
+local function humanoidAtual()
+	local c = player.Character
+	if not c then return nil end
+	return c:FindFirstChildOfClass("Humanoid")
+end
+
+local function seatMotorista()
+	local h = humanoidAtual()
+	if not h then return nil end
+	local s = h.SeatPart
+	if s and s:IsA("VehicleSeat") and s.Occupant == h then
+		return s
+	end
+	return nil
+end
+
+local function modeloDoCarro(seat)
+	local p = seat
+	while p and p ~= workspace do
+		if p:IsA("Model") then
+			return p
+		end
+		p = p.Parent
+	end
+	return nil
+end
+
+local function contextoVeiculo()
+	local s = seatMotorista()
+	if not s then return nil, nil end
+	local m = modeloDoCarro(s)
+	if not m then return nil, nil end
+	return m, s
+end
+
+local function coletarSuspensoes(carro)
+	local lista = {}
+	for _, d in ipairs(carro:GetDescendants()) do
+		if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
+			table.insert(lista, d)
+		end
+	end
+	return lista
+end
+
+local baseCamber = setmetatable({}, {__mode = "k"})
+
+local function aplicarAlturaConstraint(c, altura)
+	altura = clamp(altura, alturaMin, alturaMax)
+	if c:IsA("SpringConstraint") then
+		local ok = pcall(function()
+			c.FreeLength = altura
+		end)
+		return ok
+	end
+	if c:IsA("PrismaticConstraint") then
+		local ok = pcall(function()
+			local half = clamp(math.abs(altura), alturaMin, alturaMax)
+			c.LimitsEnabled = true
+			c.LowerLimit = -half
+			c.UpperLimit = half
+		end)
+		return ok
+	end
+	return false
+end
+
+local function aplicarAlturaManual(carro, altura)
+	local constraints = coletarSuspensoes(carro)
+	if #constraints == 0 then
+		return 0, "não achei springconstraint ou prismaticconstraint nesse carro"
+	end
+
+	local porTag = {FL = {}, FR = {}, RL = {}, RR = {}}
+	local temTag = 0
+
+	for _, c in ipairs(constraints) do
+		local tag = tagDaRoda(string.upper(c.Name))
+		if tag then
+			temTag += 1
+			table.insert(porTag[tag], c)
+		end
+	end
+
+	local alterados = 0
+	altura = clamp(altura, alturaMin, alturaMax)
+
+	if temTag > 0 then
+		for _, tag in ipairs({"FL","FR","RL","RR"}) do
+			for _, c in ipairs(porTag[tag]) do
+				if aplicarAlturaConstraint(c, altura) then
+					alterados += 1
+				end
+			end
+		end
+	else
+		for _, c in ipairs(constraints) do
+			if aplicarAlturaConstraint(c, altura) then
+				alterados += 1
+			end
+		end
+	end
+
+	if alterados == 0 then
+		return 0, "achei constraints mas não consegui aplicar a altura"
+	end
+
+	return alterados, "altura aplicada"
+end
+
+local function rotacaoCamber(rad)
+	if eixoCamber == "X" then
+		return CFrame.Angles(rad, 0, 0)
+	end
+	return CFrame.Angles(0, 0, rad)
+end
+
+local function pareceRoda(nomeUpper)
+	return nomeUpper:find("WHEEL", 1, true)
+		or nomeUpper:find("RODA", 1, true)
+		or nomeUpper:find("TIRE", 1, true)
+		or nomeUpper:find("PNEU", 1, true)
+end
+
+local function scoreAttachment(att, tag)
+	if not att or not att:IsA("Attachment") then return -999 end
+	local parent = att.Parent
+	if not parent then return -999 end
+	local pn = string.upper(parent.Name)
+	local s = 0
+	if parent:IsA("BasePart") then s += 1 end
+	if pareceRoda(pn) then s += 12 end
+	if tag and pn:find(tag, 1, true) then s += 6 end
+	if pn:find("WHEEL", 1, true) then s += 3 end
+	if pn:find("TIRE", 1, true) or pn:find("PNEU", 1, true) then s += 3 end
+	local full = string.upper(att:GetFullName())
+	if full:find("WHEEL", 1, true) or full:find("RODA", 1, true) or full:find("TIRE", 1, true) or full:find("PNEU", 1, true) then
+		s += 2
+	end
+	return s
+end
+
+local function escolherAttachmentDaRoda(constraint, tag)
+	local a0 = constraint.Attachment0
+	local a1 = constraint.Attachment1
+	local s0 = scoreAttachment(a0, tag)
+	local s1 = scoreAttachment(a1, tag)
+	if s0 > s1 then return a0 end
+	if s1 > s0 then return a1 end
+	return a1 or a0
+end
+
+local function baseDoAttachment(att)
+	local base = baseCamber[att]
+	if base then return base end
+	baseCamber[att] = att.CFrame
+	return baseCamber[att]
+end
+
+local function aplicarCamberNoAttachment(att, graus)
+	local ok = pcall(function()
+		local base = baseDoAttachment(att)
+		att.CFrame = base * rotacaoCamber(math.rad(graus))
+	end)
+	return ok
+end
+
+local function aplicarCamber(carro, camberGraus)
+	local constraints = coletarSuspensoes(carro)
+	if #constraints == 0 then
+		return 0, "não achei constraints pra aplicar camber"
+	end
+
+	local porTag = {FL = {}, FR = {}, RL = {}, RR = {}}
+	local temTag = 0
+
+	for _, c in ipairs(constraints) do
+		local tag = tagDaRoda(string.upper(c.Name))
+		if tag then
+			temTag += 1
+			table.insert(porTag[tag], c)
+		end
+	end
+
+	local alterados = 0
+
+	local function aplicarEmConstraint(c, tag, valor)
+		local graus = valor
+		if inverterLadoDireito and (tag == "FR" or tag == "RR") then
+			graus = -valor
+		end
+
+		local att = escolherAttachmentDaRoda(c, tag)
+		if att and aplicarCamberNoAttachment(att, graus) then
+			alterados += 1
+			return
+		end
+
+		if c.Attachment1 and aplicarCamberNoAttachment(c.Attachment1, graus) then
+			alterados += 1
+			return
+		end
+
+		if c.Attachment0 and aplicarCamberNoAttachment(c.Attachment0, graus) then
+			alterados += 1
+			return
+		end
+	end
+
+	if temTag > 0 then
+		for _, tag in ipairs({"FL","FR","RL","RR"}) do
+			for _, c in ipairs(porTag[tag]) do
+				aplicarEmConstraint(c, tag, camberGraus)
+			end
+		end
+	else
+		for _, c in ipairs(constraints) do
+			aplicarEmConstraint(c, "FL", camberGraus)
+		end
+	end
+
+	if alterados == 0 then
+		return 0, "não consegui aplicar camber"
+	end
+
+	return alterados, "camber aplicado"
+end
+
+local function acharPlacas(carro)
+	local body = carro:FindFirstChild("Body") or carro:FindFirstChild("body") or carro:FindFirstChild("BODY")
+	local raiz = body or carro
+	local placaVeh = raiz:FindFirstChild("PlacaVEH", true)
+	if not placaVeh then return {} end
+	local plates = placaVeh:FindFirstChild("Plates") or placaVeh:FindFirstChild("plates") or placaVeh:FindFirstChild("PLATES")
+	if not plates then return {} end
+	local labels = {}
+	for _, d in ipairs(plates:GetDescendants()) do
+		if d:IsA("TextLabel") and d.Name == "Identifier" then
+			table.insert(labels, d)
+		end
+	end
+	return labels
+end
+
+local function aplicarPlaca(carro, texto)
+	local labels = acharPlacas(carro)
+	if #labels == 0 then
+		return false, "não achei Identifier dentro da placa"
+	end
+	for _, lb in ipairs(labels) do
+		pcall(function()
+			lb.Text = tostring(texto or "")
+		end)
+	end
+	return true, "placa aplicada"
+end
+
+local function childCaseInsensitive(parent, wanted)
+	if not parent then return nil end
+	for _, ch in ipairs(parent:GetChildren()) do
+		if string.lower(ch.Name) == string.lower(wanted) then
+			return ch
+		end
+	end
+	return nil
+end
+
+local function acharLNs(carro)
+	local body = carro:FindFirstChild("Body") or carro:FindFirstChild("body") or carro:FindFirstChild("BODY")
+	local raiz = body or carro
+
+	local lights = childCaseInsensitive(raiz, "Lights") or raiz:FindFirstChild("Lights", true) or raiz:FindFirstChild("lights", true)
+	if not lights then return {} end
+
+	local headlights = childCaseInsensitive(lights, "Headlights") or childCaseInsensitive(lights, "Highlights") or lights:FindFirstChild("Headlights", true) or lights:FindFirstChild("Highlights", true)
+	if not headlights then return {} end
+
+	local low = childCaseInsensitive(headlights, "Low") or headlights:FindFirstChild("Low", true)
+	if not low then return {} end
+
+	local lnNode = childCaseInsensitive(low, "LN") or low:FindFirstChild("LN", true)
+	local parts = {}
+
+	if lnNode then
+		for _, d in ipairs(lnNode:GetDescendants()) do
+			if d:IsA("BasePart") then
+				table.insert(parts, d)
+			end
+		end
+	end
+
+	for _, d in ipairs(low:GetDescendants()) do
+		if d:IsA("BasePart") and string.lower(d.Name) == "ln" then
+			table.insert(parts, d)
+		end
+	end
+
+	local uniq = {}
+	local out = {}
+	for _, p in ipairs(parts) do
+		if p and p.Parent and not uniq[p] then
+			uniq[p] = true
+			table.insert(out, p)
+		end
+	end
+
+	return out
+end
+
+local function aplicarCorLNs(carro, cor)
+	local parts = acharLNs(carro)
+	if #parts == 0 then
+		return false, "não achei LN em Lights > Headlights > Low"
+	end
+	for _, p in ipairs(parts) do
+		pcall(function()
+			p.Color = cor
+		end)
+	end
+	return true, "cor aplicada"
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "SuspensionCamberGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local openBtn = Instance.new("TextButton")
+openBtn.Name = "Open"
+openBtn.AnchorPoint = Vector2.new(0, 1)
+openBtn.Position = UDim2.new(0, 16, 1, -16)
+openBtn.Size = UDim2.new(0, 180, 0, 44)
+openBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+openBtn.BorderSizePixel = 0
+openBtn.Font = Enum.Font.GothamBold
+openBtn.TextSize = 14
+openBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+openBtn.Text = "Suspensão e Camber"
+openBtn.Parent = gui
+Instance.new("UICorner", openBtn).CornerRadius = UDim.new(0, 14)
+local openStroke = Instance.new("UIStroke", openBtn)
+openStroke.Thickness = 2
+openStroke.Transparency = 0.35
+
+local root = Instance.new("Frame")
+root.Name = "Root"
+root.AnchorPoint = Vector2.new(0.5, 0.5)
+root.Position = UDim2.new(0.5, 0, 0.5, 0)
+root.Size = UDim2.new(0, 640, 0, 420)
+root.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+root.BorderSizePixel = 0
+root.Visible = false
+root.Parent = gui
+Instance.new("UICorner", root).CornerRadius = UDim.new(0, 16)
+
+local border = Instance.new("UIStroke")
+border.Thickness = 2
+border.Transparency = 0
+border.Parent = root
+
+local grad = Instance.new("UIGradient")
+grad.Rotation = 0
+grad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+	ColorSequenceKeypoint.new(0.12, Color3.fromRGB(255, 0, 0)),
+	ColorSequenceKeypoint.new(0.13, Color3.fromRGB(0, 0, 0)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
+})
+grad.Parent = border
+TweenService:Create(grad, TweenInfo.new(1.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360}):Play()
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Position = UDim2.new(0, 16, 0, 12)
+title.Size = UDim2.new(1, -32, 0, 24)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Suspensão e Camber"
+title.Parent = root
+
+local hint = Instance.new("TextLabel")
+hint.BackgroundTransparency = 1
+hint.Position = UDim2.new(0, 16, 0, 38)
+hint.Size = UDim2.new(1, -32, 0, 16)
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 12
+hint.TextColor3 = Color3.fromRGB(190, 190, 190)
+hint.TextXAlignment = Enum.TextXAlignment.Left
+hint.Text = "tecla: " .. teclaAbrir.Name
+hint.Parent = root
+
+local function animBotao(b)
+	local o = b.Size
+	TweenService:Create(b, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = o - UDim2.fromOffset(6, 6)}):Play()
+	task.delay(0.09, function()
+		if b and b.Parent then
+			TweenService:Create(b, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = o}):Play()
+		end
+	end)
+end
+
+local hLabel = Instance.new("TextLabel")
+hLabel.BackgroundTransparency = 1
+hLabel.Position = UDim2.new(0, 16, 0, 64)
+hLabel.Size = UDim2.new(0, 360, 0, 16)
+hLabel.Font = Enum.Font.GothamMedium
+hLabel.TextSize = 12
+hLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+hLabel.TextXAlignment = Enum.TextXAlignment.Left
+hLabel.Text = "altura manual (digitar e aplicar)"
+hLabel.Parent = root
+
+local heightBox = Instance.new("TextBox")
+heightBox.Position = UDim2.new(0, 16, 0, 84)
+heightBox.Size = UDim2.new(0, 360, 0, 40)
+heightBox.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+heightBox.BorderSizePixel = 0
+heightBox.ClearTextOnFocus = false
+heightBox.Font = Enum.Font.GothamSemibold
+heightBox.TextSize = 14
+heightBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+heightBox.TextXAlignment = Enum.TextXAlignment.Left
+heightBox.Text = tostring(alturaPadrao)
+heightBox.Parent = root
+Instance.new("UICorner", heightBox).CornerRadius = UDim.new(0, 12)
+local padH = Instance.new("UIPadding", heightBox)
+padH.PaddingLeft = UDim.new(0, 12)
+
+local cLabel = Instance.new("TextLabel")
+cLabel.BackgroundTransparency = 1
+cLabel.Position = UDim2.new(0, 16, 0, 132)
+cLabel.Size = UDim2.new(0, 360, 0, 16)
+cLabel.Font = Enum.Font.GothamMedium
+cLabel.TextSize = 12
+cLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+cLabel.TextXAlignment = Enum.TextXAlignment.Left
+cLabel.Text = "camber"
+cLabel.Parent = root
+
+local camberBox = Instance.new("TextBox")
+camberBox.Position = UDim2.new(0, 16, 0, 152)
+camberBox.Size = UDim2.new(0, 360, 0, 40)
+camberBox.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+camberBox.BorderSizePixel = 0
+camberBox.ClearTextOnFocus = false
+camberBox.Font = Enum.Font.GothamSemibold
+camberBox.TextSize = 14
+camberBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+camberBox.TextXAlignment = Enum.TextXAlignment.Left
+camberBox.Text = tostring(camberPadrao)
+camberBox.Parent = root
+Instance.new("UICorner", camberBox).CornerRadius = UDim.new(0, 12)
+local padC = Instance.new("UIPadding", camberBox)
+padC.PaddingLeft = UDim.new(0, 12)
+
+local pLabel = Instance.new("TextLabel")
+pLabel.BackgroundTransparency = 1
+pLabel.Position = UDim2.new(0, 16, 0, 202)
+pLabel.Size = UDim2.new(0, 608, 0, 16)
+pLabel.Font = Enum.Font.GothamMedium
+pLabel.TextSize = 12
+pLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+pLabel.TextXAlignment = Enum.TextXAlignment.Left
+pLabel.Text = "presets"
+pLabel.Parent = root
+
+local presetsFrame = Instance.new("Frame")
+presetsFrame.BackgroundTransparency = 1
+presetsFrame.Position = UDim2.new(0, 16, 0, 222)
+presetsFrame.Size = UDim2.new(0, 608, 0, 48)
+presetsFrame.Parent = root
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Horizontal
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 10)
+layout.Parent = presetsFrame
+
+local applyBtn = Instance.new("TextButton")
+applyBtn.Position = UDim2.new(0, 392, 0, 84)
+applyBtn.Size = UDim2.new(0, 232, 0, 40)
+applyBtn.BackgroundColor3 = Color3.fromRGB(70, 140, 255)
+applyBtn.BorderSizePixel = 0
+applyBtn.Font = Enum.Font.GothamBold
+applyBtn.TextSize = 14
+applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+applyBtn.Text = "aplicar manual"
+applyBtn.Parent = root
+Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 12)
+
+local onlyCamberBtn = Instance.new("TextButton")
+onlyCamberBtn.Position = UDim2.new(0, 392, 0, 132)
+onlyCamberBtn.Size = UDim2.new(0, 232, 0, 36)
+onlyCamberBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 56)
+onlyCamberBtn.BorderSizePixel = 0
+onlyCamberBtn.Font = Enum.Font.GothamBold
+onlyCamberBtn.TextSize = 13
+onlyCamberBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+onlyCamberBtn.Text = "aplicar camber"
+onlyCamberBtn.Parent = root
+Instance.new("UICorner", onlyCamberBtn).CornerRadius = UDim.new(0, 12)
+
+local airLabel = Instance.new("TextLabel")
+airLabel.BackgroundTransparency = 1
+airLabel.Position = UDim2.new(0, 392, 0, 176)
+airLabel.Size = UDim2.new(0, 232, 0, 16)
+airLabel.Font = Enum.Font.GothamMedium
+airLabel.TextSize = 12
+airLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+airLabel.TextXAlignment = Enum.TextXAlignment.Left
+airLabel.Text = "suspensão a ar (arrastar)"
+airLabel.Parent = root
+
+local placaLabel = Instance.new("TextLabel")
+placaLabel.BackgroundTransparency = 1
+placaLabel.Position = UDim2.new(0, 16, 0, 276)
+placaLabel.Size = UDim2.new(0, 360, 0, 16)
+placaLabel.Font = Enum.Font.GothamMedium
+placaLabel.TextSize = 12
+placaLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+placaLabel.TextXAlignment = Enum.TextXAlignment.Left
+placaLabel.Text = "placa (Identifier)"
+placaLabel.Parent = root
+
+local plateBox = Instance.new("TextBox")
+plateBox.Position = UDim2.new(0, 16, 0, 296)
+plateBox.Size = UDim2.new(0, 360, 0, 40)
+plateBox.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+plateBox.BorderSizePixel = 0
+plateBox.ClearTextOnFocus = false
+plateBox.Font = Enum.Font.GothamSemibold
+plateBox.TextSize = 14
+plateBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+plateBox.TextXAlignment = Enum.TextXAlignment.Left
+plateBox.Text = ""
+plateBox.PlaceholderText = "ex: ABC1D23"
+plateBox.Parent = root
+Instance.new("UICorner", plateBox).CornerRadius = UDim.new(0, 12)
+local padP = Instance.new("UIPadding", plateBox)
+padP.PaddingLeft = UDim.new(0, 12)
+
+local applyPlateBtn = Instance.new("TextButton")
+applyPlateBtn.Position = UDim2.new(0, 392, 0, 296)
+applyPlateBtn.Size = UDim2.new(0, 232, 0, 40)
+applyPlateBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 56)
+applyPlateBtn.BorderSizePixel = 0
+applyPlateBtn.Font = Enum.Font.GothamBold
+applyPlateBtn.TextSize = 14
+applyPlateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+applyPlateBtn.Text = "aplicar placa"
+applyPlateBtn.Parent = root
+Instance.new("UICorner", applyPlateBtn).CornerRadius = UDim.new(0, 12)
+
+local lightLabel = Instance.new("TextLabel")
+lightLabel.BackgroundTransparency = 1
+lightLabel.Position = UDim2.new(0, 16, 0, 348)
+lightLabel.Size = UDim2.new(0, 360, 0, 16)
+lightLabel.Font = Enum.Font.GothamMedium
+lightLabel.TextSize = 12
+lightLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+lightLabel.TextXAlignment = Enum.TextXAlignment.Left
+lightLabel.Text = "cor das luzes (LN)"
+lightLabel.Parent = root
+
+local colorsFrame = Instance.new("Frame")
+colorsFrame.BackgroundTransparency = 1
+colorsFrame.Position = UDim2.new(0, 16, 0, 368)
+colorsFrame.Size = UDim2.new(0, 608, 0, 40)
+colorsFrame.Parent = root
+
+local colorsLayout = Instance.new("UIListLayout")
+colorsLayout.FillDirection = Enum.FillDirection.Horizontal
+colorsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+colorsLayout.Padding = UDim.new(0, 10)
+colorsLayout.Parent = colorsFrame
+
+local status = Instance.new("TextLabel")
+status.BackgroundTransparency = 1
+status.Position = UDim2.new(0, 16, 0, 408)
+status.Size = UDim2.new(1, -32, 0, 12)
+status.Font = Enum.Font.Gotham
+status.TextSize = 12
+status.TextColor3 = Color3.fromRGB(210, 210, 210)
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.TextYAlignment = Enum.TextYAlignment.Center
+status.TextWrapped = true
+status.Text = "entre no veículo para mexer"
+status.Parent = root
+
+local function setStatus(t)
+	status.Text = t
+end
+
+local sliderArea = Instance.new("Frame")
+sliderArea.BackgroundTransparency = 1
+sliderArea.Size = UDim2.new(0, 32, 0, 220)
+sliderArea.Position = UDim2.new(1, -34, 0, 78)
+sliderArea.Parent = root
+
+local linha = Instance.new("Frame")
+linha.AnchorPoint = Vector2.new(0.5, 0)
+linha.Position = UDim2.new(0.5, 0, 0, 0)
+linha.Size = UDim2.new(0, 5, 1, 0)
+linha.BackgroundColor3 = Color3.fromRGB(90, 90, 100)
+linha.BorderSizePixel = 0
+linha.Parent = sliderArea
+Instance.new("UICorner", linha).CornerRadius = UDim.new(1, 0)
+
+local bola = Instance.new("ImageButton")
+bola.Size = UDim2.new(0, 20, 0, 20)
+bola.AnchorPoint = Vector2.new(0.5, 0.5)
+bola.Position = UDim2.new(0.5, 0, 1, -10)
+bola.BackgroundColor3 = Color3.fromRGB(50, 170, 255)
+bola.BorderSizePixel = 0
+bola.AutoButtonColor = true
+bola.Parent = sliderArea
+Instance.new("UICorner", bola).CornerRadius = UDim.new(1, 0)
+local bolaStroke = Instance.new("UIStroke", bola)
+bolaStroke.Thickness = 2
+bolaStroke.Transparency = 0.35
+
+local sliderValorLabel = Instance.new("TextLabel")
+sliderValorLabel.BackgroundTransparency = 1
+sliderValorLabel.Position = UDim2.new(1, -310, 0, 64)
+sliderValorLabel.Size = UDim2.new(0, 290, 0, 18)
+sliderValorLabel.Font = Enum.Font.Gotham
+sliderValorLabel.TextSize = 12
+sliderValorLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
+sliderValorLabel.TextXAlignment = Enum.TextXAlignment.Right
+sliderValorLabel.Text = ""
+sliderValorLabel.Parent = root
+
+local function mkColorBtn(nome, cor)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 92, 0, 40)
+	b.BackgroundColor3 = cor
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 12
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
+	b.Text = nome
+	b.Parent = colorsFrame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+	local st = Instance.new("UIStroke")
+	st.Thickness = 2
+	st.Transparency = 0.35
+	st.Parent = b
+	return b
+end
+
+local corBtns = {}
+corBtns[#corBtns+1] = mkColorBtn("Vermelho", Color3.fromRGB(255, 40, 40))
+corBtns[#corBtns+1] = mkColorBtn("Azul", Color3.fromRGB(60, 140, 255))
+corBtns[#corBtns+1] = mkColorBtn("Verde", Color3.fromRGB(60, 220, 120))
+corBtns[#corBtns+1] = mkColorBtn("Amarelo", Color3.fromRGB(255, 210, 40))
+corBtns[#corBtns+1] = mkColorBtn("Roxo", Color3.fromRGB(170, 90, 255))
+corBtns[#corBtns+1] = mkColorBtn("Branco", Color3.fromRGB(230, 230, 230))
+
+local function mostrar()
+	if root.Visible then return end
+	root.Visible = true
+	root.BackgroundTransparency = 1
+	border.Transparency = 1
+	root.Size = UDim2.new(0, 610, 0, 390)
+	TweenService:Create(root, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+	TweenService:Create(border, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0}):Play()
+	TweenService:Create(root, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0, 640, 0, 420)}):Play()
+end
+
+local function esconder()
+	if not root.Visible then return end
+	TweenService:Create(root, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(border, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Transparency = 1}):Play()
+	local t = TweenService:Create(root, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Size = UDim2.new(0, 610, 0, 390)})
+	t:Play()
+	t.Completed:Connect(function()
+		root.Visible = false
+	end)
+end
+
+local function toggle()
+	if root.Visible then esconder() else mostrar() end
+end
+
+openBtn.MouseButton1Click:Connect(function()
+	animBotao(openBtn)
+	toggle()
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == teclaAbrir then
+		toggle()
+	end
+end)
+
+local carroAtual = nil
+local seatAtual = nil
+local cacheSusp = nil
+
+local function atualizarContexto()
+	local c, s = contextoVeiculo()
+	if c ~= carroAtual then
+		carroAtual = c
+		seatAtual = s
+		cacheSusp = nil
+	end
+end
+
+local function pegarSuspensoesCache()
+	if not carroAtual then return nil end
+	if cacheSusp then return cacheSusp end
+	cacheSusp = coletarSuspensoes(carroAtual)
+	return cacheSusp
+end
+
+local function alturaParaY(altura)
+	local t = (clamp(altura, alturaMin, alturaMax) - alturaMin) / (alturaMax - alturaMin)
+	return 1 - clamp(t, 0, 1)
+end
+
+local function yParaAltura(yScale)
+	local t = 1 - clamp(yScale, 0, 1)
+	return alturaMin + t * (alturaMax - alturaMin)
+end
+
+local yDesejado = alturaParaY(clamp(alturaPadrao, alturaMin, alturaMax))
+local yAtual = yDesejado
+local alturaArAtual = clamp(alturaPadrao, alturaMin, alturaMax)
+
+local function setBolaY(yScale)
+	bola.Position = UDim2.new(0.5, 0, yScale, 0)
+end
+
+setBolaY(yAtual)
+sliderValorLabel.Text = "ar: " .. string.format("%.2f", yParaAltura(yAtual))
+
+local function desabilitarInteracao(disabled)
+	applyBtn.Active = not disabled
+	onlyCamberBtn.Active = not disabled
+	applyPlateBtn.Active = not disabled
+	bola.Active = not disabled
+	applyBtn.AutoButtonColor = not disabled
+	onlyCamberBtn.AutoButtonColor = not disabled
+	applyPlateBtn.AutoButtonColor = not disabled
+	bola.AutoButtonColor = not disabled
+	applyBtn.TextTransparency = disabled and 0.35 or 0
+	onlyCamberBtn.TextTransparency = disabled and 0.35 or 0
+	applyPlateBtn.TextTransparency = disabled and 0.35 or 0
+	linha.BackgroundTransparency = disabled and 0.5 or 0
+	bola.BackgroundTransparency = disabled and 0.35 or 0
+	sliderValorLabel.TextTransparency = disabled and 0.35 or 0
+	heightBox.TextTransparency = disabled and 0.35 or 0
+	camberBox.TextTransparency = disabled and 0.35 or 0
+	plateBox.TextTransparency = disabled and 0.35 or 0
+	for _, b in ipairs(corBtns) do
+		b.Active = not disabled
+		b.AutoButtonColor = not disabled
+		b.TextTransparency = disabled and 0.35 or 0
+		b.BackgroundTransparency = disabled and 0.35 or 0
+	end
+end
+
+local function atualizarStatus()
+	if not root.Visible then return end
+	atualizarContexto()
+	local ok = carroAtual ~= nil
+	desabilitarInteracao(not ok)
+	if not ok then
+		setStatus("entre no veículo para mexer")
+		return
+	end
+	setStatus("carro detectado: " .. carroAtual.Name)
+end
+
+local function validarValoresManual()
+	if not carroAtual then return nil, nil, "entre no veículo para mexer" end
+	local h = numero(heightBox.Text)
+	local c = numero(camberBox.Text)
+	if not h then return nil, nil, "altura inválida" end
+	if c == nil then return nil, nil, "camber inválido" end
+	return clamp(h, alturaMin, alturaMax), c, nil
+end
+
+applyBtn.MouseButton1Click:Connect(function()
+	atualizarStatus()
+	if not carroAtual then return end
+	animBotao(applyBtn)
+
+	local h, c, err = validarValoresManual()
+	if err then setStatus(err) return end
+
+	cacheSusp = nil
+
+	yDesejado = alturaParaY(h)
+	yAtual = yDesejado
+	alturaArAtual = h
+	setBolaY(yAtual)
+	sliderValorLabel.Text = "ar: " .. string.format("%.2f", yParaAltura(yAtual))
+
+	local hCount, hMsg = aplicarAlturaManual(carroAtual, h)
+	local cCount, cMsg = aplicarCamber(carroAtual, c)
+
+	if hCount > 0 or cCount > 0 then
+		setStatus("feito: " .. hMsg .. " e " .. cMsg)
+	else
+		setStatus("não deu: " .. hMsg .. " e " .. cMsg)
+	end
+
+	cacheSusp = nil
+end)
+
+onlyCamberBtn.MouseButton1Click:Connect(function()
+	atualizarStatus()
+	if not carroAtual then return end
+	animBotao(onlyCamberBtn)
+
+	local _, c, err = validarValoresManual()
+	if err then setStatus(err) return end
+
+	local cCount, cMsg = aplicarCamber(carroAtual, c)
+	if cCount > 0 then
+		setStatus("feito: " .. cMsg)
+	else
+		setStatus("não deu: " .. cMsg)
+	end
+end)
+
+applyPlateBtn.MouseButton1Click:Connect(function()
+	atualizarStatus()
+	if not carroAtual then return end
+	animBotao(applyPlateBtn)
+
+	local texto = tostring(plateBox.Text or "")
+	if texto == "" then
+		setStatus("digite um texto para a placa")
+		return
+	end
+
+	local ok, msg = aplicarPlaca(carroAtual, texto)
+	if ok then
+		setStatus("feito: " .. msg)
+	else
+		setStatus("não deu: " .. msg)
+	end
+end)
+
+for _, p in ipairs(presets) do
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 240, 0, 44)
+	b.BackgroundColor3 = Color3.fromRGB(50, 50, 56)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 12
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
+	b.TextWrapped = true
+	b.Text = p.nome .. "\n" .. "susp " .. tostring(p.altura) .. "  camber " .. tostring(p.camber)
+	b.Parent = presetsFrame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+	b.MouseButton1Click:Connect(function()
+		atualizarStatus()
+		if not carroAtual then return end
+		heightBox.Text = tostring(p.altura)
+		camberBox.Text = tostring(p.camber)
+		animBotao(b)
+	end)
+end
+
+local function screenYParaYScale(screenY)
+	local absPos = sliderArea.AbsolutePosition.Y
+	local absSize = sliderArea.AbsoluteSize.Y
+	local y = (screenY - absPos) / absSize
+	return clamp(y, 0, 1)
+end
+
+local arrastando = false
+local usandoTouch = false
+local touchRef = nil
+
+local function iniciarArrastoMouse()
+	arrastando = true
+	usandoTouch = false
+end
+
+local function iniciarArrastoTouch(input)
+	arrastando = true
+	usandoTouch = true
+	touchRef = input
+end
+
+local function pararArrasto()
+	arrastando = false
+	usandoTouch = false
+	touchRef = nil
+end
+
+local function puxarAgoraPara(screenY)
+	yDesejado = screenYParaYScale(screenY)
+	yAtual = yDesejado
+	setBolaY(yAtual)
+	sliderValorLabel.Text = "ar: " .. string.format("%.2f", yParaAltura(yAtual))
+end
+
+bola.InputBegan:Connect(function(input)
+	atualizarStatus()
+	if not carroAtual then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		iniciarArrastoMouse()
+		puxarAgoraPara(UserInputService:GetMouseLocation().Y)
+	elseif input.UserInputType == Enum.UserInputType.Touch then
+		iniciarArrastoTouch(input)
+		puxarAgoraPara(input.Position.Y)
+	end
+end)
+
+sliderArea.InputBegan:Connect(function(input)
+	atualizarStatus()
+	if not carroAtual then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		iniciarArrastoMouse()
+		puxarAgoraPara(UserInputService:GetMouseLocation().Y)
+	elseif input.UserInputType == Enum.UserInputType.Touch then
+		iniciarArrastoTouch(input)
+		puxarAgoraPara(input.Position.Y)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gp)
+	if gp then return end
+	if not arrastando then return end
+	if not usandoTouch and input.UserInputType == Enum.UserInputType.MouseButton1 then
+		pararArrasto()
+	elseif usandoTouch and input.UserInputType == Enum.UserInputType.Touch and touchRef and input == touchRef then
+		pararArrasto()
+	end
+end)
+
+for _, btn in ipairs(corBtns) do
+	btn.MouseButton1Click:Connect(function()
+		atualizarStatus()
+		if not carroAtual then return end
+		animBotao(btn)
+		local cor = btn.BackgroundColor3
+		local ok, msg = aplicarCorLNs(carroAtual, cor)
+		if ok then
+			setStatus("feito: " .. msg)
+		else
+			setStatus("não deu: " .. msg)
+		end
+	end)
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	if not root.Visible then return end
+	atualizarContexto()
+	if not carroAtual then
+		pararArrasto()
+		return
+	end
+
+	if arrastando then
+		if usandoTouch and touchRef then
+			yDesejado = screenYParaYScale(touchRef.Position.Y)
+		else
+			yDesejado = screenYParaYScale(UserInputService:GetMouseLocation().Y)
+		end
+	end
+
+	local a = 1 - math.exp(-clamp(suavidadeArrasto, 1, 100) * dt)
+	yAtual = yAtual + (yDesejado - yAtual) * a
+	setBolaY(yAtual)
+	sliderValorLabel.Text = "ar: " .. string.format("%.2f", yParaAltura(yAtual))
+end)
+
+RunService.Heartbeat:Connect(function(dt)
+	atualizarStatus()
+	if not root.Visible then return end
+	atualizarContexto()
+	if not carroAtual then return end
+
+	local cons = pegarSuspensoesCache()
+	if not cons or #cons == 0 then return end
+
+	local alvo = clamp(yParaAltura(yAtual), alturaMin, alturaMax)
+	local a = 1 - math.exp(-clamp(suavidadeAr, 1, 120) * dt)
+	alturaArAtual = alturaArAtual + (alvo - alturaArAtual) * a
+
+	for _, c in ipairs(cons) do
+		aplicarAlturaConstraint(c, alturaArAtual)
+	end
+end)
+
+local function hookChar(char)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if not hum then return end
+	hum:GetPropertyChangedSignal("SeatPart"):Connect(function()
+		atualizarContexto()
+		atualizarStatus()
+		if carroAtual then
+			cacheSusp = nil
+			local h = clamp(numero(heightBox.Text) or alturaPadrao, alturaMin, alturaMax)
+			yDesejado = alturaParaY(h)
+			yAtual = yDesejado
+			alturaArAtual = h
+			setBolaY(yAtual)
+			sliderValorLabel.Text = "ar: " .. string.format("%.2f", yParaAltura(yAtual))
+		end
+	end)
+	atualizarContexto()
+	atualizarStatus()
+end
+
+player.CharacterAdded:Connect(hookChar)
+if player.Character then hookChar(player.Character) end
+
+atualizarStatus()
