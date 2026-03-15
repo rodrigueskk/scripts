@@ -573,7 +573,18 @@ createSlider(wheelSpacingSection, {
     end
 })
 
-local originalWheelPositions = {}
+local originalWheelOffsets = {}
+
+local function getWheelWeld(wheel)
+    for _, joint in ipairs(wheel:GetJoints()) do
+        if joint:IsA("Weld") or joint:IsA("WeldConstraint") then
+            if joint.Part0 == wheel or joint.Part1 == wheel then
+                return joint
+            end
+        end
+    end
+    return nil
+end
 
 local function getWheels(vehicle)
     local wheels = {}
@@ -582,8 +593,9 @@ local function getWheels(vehicle)
             local tag = tagDaRoda(string.upper(part.Name))
             if tag then
                 wheels[tag] = part
-                if not originalWheelPositions[part] then
-                    originalWheelPositions[part] = part.CFrame
+                local weld = getWheelWeld(part)
+                if weld and not originalWheelOffsets[weld] then
+                    originalWheelOffsets[weld] = weld.C1
                 end
             end
         end
@@ -598,24 +610,23 @@ local function applyWheelSpacing(spacing)
     local wheels = getWheels(vehicle)
 
     for tag, wheel in pairs(wheels) do
-        local originalCFrame = originalWheelPositions[wheel]
-        if originalCFrame then
-            local offset = Vector3.new(0, 0, 0)
-            -- As rodas FL e RL devem se mover para a esquerda (negativo no eixo X local do veículo)
-            -- As rodas FR e RR devem se mover para a direita (positivo no eixo X local do veículo)
-            if tag == "FL" or tag == "RL" then
-                offset = Vector3.new(-spacing, 0, 0)
-            elseif tag == "FR" or tag == "RR" then
-                offset = Vector3.new(spacing, 0, 0)
+        local weld = getWheelWeld(wheel)
+        if weld then
+            local originalOffset = originalWheelOffsets[weld]
+            if originalOffset then
+                local offsetVector = Vector3.new(0, 0, 0)
+                -- As rodas FL e RL devem se mover para a esquerda (negativo no eixo X local do veículo)
+                -- As rodas FR e RR devem se mover para a direita (positivo no eixo X local do veículo)
+                if tag == "FL" or tag == "RL" then
+                    offsetVector = Vector3.new(-spacing, 0, 0)
+                elseif tag == "FR" or tag == "RR" then
+                    offsetVector = Vector3.new(spacing, 0, 0)
+                end
+                
+                -- Modificar o C1 do Weld para mover a roda em relação ao seu Part0 (geralmente o chassi)
+                -- Isso deve replicar para outros clientes se o veículo tiver NetworkOwnership do jogador.
+                weld.C1 = originalOffset * CFrame.new(offsetVector)
             end
-            
-            -- Para que a mudança seja visível para todos, a CFrame deve ser aplicada diretamente no servidor
-            -- No entanto, como este é um LocalScript, a alteração direta da CFrame de partes não replicará para o servidor
-            -- A solução ideal seria usar um RemoteEvent para o servidor, mas o pedido é 'SÓ PRA MUDAR A FUNÇÃO DO ESPAÇADOR DENTRO DO SCRIPT'
-            -- Portanto, a mudança será local para o cliente que executa o script.
-            -- Para que seja visível para todos, o veículo precisaria ter NetworkOwnership do cliente, ou um RemoteEvent seria necessário.
-            -- Assumindo que o veículo já tem NetworkOwnership do cliente ou que o usuário entende a limitação de LocalScript.
-            wheel.CFrame = originalCFrame * CFrame.new(offset)
         end
     end
 end
