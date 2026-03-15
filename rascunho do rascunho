@@ -1,12 +1,3 @@
---[[
-    ComitHub - Versão Final Corrigida
-    - Botão Abrir Arrastável (Sem abrir ao soltar)
-    - Menu de Configurações (Engrenagem)
-    - Seletores de Cores e Fontes
-    - Trava de Execução com Aviso Personalizado
-    - Status e Emplacamento
-]]
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -15,6 +6,17 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+-- Configurações Globais e Temas (Estado Persistente)
+local configData = {
+    notificationsEnabled = true,
+    duplicateLockEnabled = true,
+    dataSharingEnabled = false, -- Compartilhamento de dados (padrão desativado)
+    primaryColor = Color3.fromRGB(17, 17, 19),
+    secondaryColor = Color3.fromRGB(255, 255, 255),
+    tertiaryColor = Color3.fromRGB(35, 35, 38),
+    currentFont = Enum.Font.GothamBold
+}
 
 -- 1. SISTEMA DE TRAVA DE EXECUÇÃO (Verificação Imediata)
 if playerGui:FindFirstChild("ComitHubUI") then
@@ -38,18 +40,18 @@ if playerGui:FindFirstChild("ComitHubUI") then
     stroke.Color = Color3.fromRGB(255, 50, 50)
     stroke.Parent = frame
 
-    local faceLabel = Instance.new("TextLabel")
-    faceLabel.Size = UDim2.new(0, 60, 1, 0)
-    faceLabel.BackgroundTransparency = 1
-    faceLabel.Font = Enum.Font.Code
-    faceLabel.TextSize = 35
-    faceLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-    faceLabel.Text = "• •\n ∩"
-    faceLabel.Parent = frame
+    local errorLabel = Instance.new("TextLabel")
+    errorLabel.Size = UDim2.new(0, 80, 1, 0)
+    errorLabel.BackgroundTransparency = 1
+    errorLabel.Font = Enum.Font.GothamBold
+    errorLabel.TextSize = 18
+    errorLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    errorLabel.Text = "Erro 448"
+    errorLabel.Parent = frame
     
     local msgLabel = Instance.new("TextLabel")
-    msgLabel.Size = UDim2.new(1, -70, 1, 0)
-    msgLabel.Position = UDim2.new(0, 70, 0, 0)
+    msgLabel.Size = UDim2.new(1, -90, 1, 0)
+    msgLabel.Position = UDim2.new(0, 90, 0, 0)
     msgLabel.BackgroundTransparency = 1
     msgLabel.Font = Enum.Font.GothamBold
     msgLabel.TextSize = 14
@@ -66,25 +68,68 @@ if playerGui:FindFirstChild("ComitHubUI") then
     return
 end
 
--- 2. CONFIGURAÇÕES E ESTADO
-local configData = {
-    notificationsEnabled = true,
-    duplicateLockEnabled = true,
-    primaryColor = Color3.fromRGB(17, 17, 19),
-    secondaryColor = Color3.fromRGB(255, 255, 255),
-    tertiaryColor = Color3.fromRGB(35, 35, 38),
-    currentFont = Enum.Font.GothamBold
+-- Variáveis de Estado do Veículo
+local alturaMin, alturaMax = 0.05, 8
+local velocityMult, velocityMult2 = 0.025, 0.150
+local currentSuspension = 2.5
+
+local tokensRoda = {
+    FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
+    FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
+    RL = {"RL","REARLEFT","REAR_LEFT","LEFTREAR","LEFT_REAR","BACKLEFT","BACK_LEFT"},
+    RR = {"RR","REARRIGHT","REAR_RIGHT","RIGHTREAR","RIGHT_REAR","BACKRIGHT","BACK_RIGHT"},
 }
 
-local currentSuspension = 2.5
-local velocityMult, velocityMult2 = 0.025, 0.150
+local function tagDaRoda(nomeUpper)
+    for tag, lista in pairs(tokensRoda) do
+        for _, t in ipairs(lista) do
+            if nomeUpper:find(t, 1, true) then return tag end
+        end
+    end
+    return nil
+end
 
--- 3. CRIAÇÃO DA UI PRINCIPAL
+local function clamp(n, a, b)
+    if n < a then return a end
+    if n > b then return b end
+    return n
+end
+
+-- 2. CRIAÇÃO DA UI (Mantendo a estrutura original do usuário)
 local gui = Instance.new("ScreenGui")
 gui.Name = "ComitHubUI"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
+
+local function notify(title, text)
+    if not configData.notificationsEnabled then return end
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 3
+        })
+    end)
+end
+
+local function getVehicle()
+    local character = player.Character
+    if not character then return nil end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return nil end
+    local seatPart = humanoid.SeatPart
+    if not seatPart then return nil end
+    return seatPart:FindFirstAncestorOfClass("Model")
+end
+
+local function getVehicleSeat(vehicle)
+    if not vehicle then return nil end
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if obj:IsA("VehicleSeat") then return obj end
+    end
+    return nil
+end
 
 -- Botão Abrir (Visibilidade Imediata)
 local openButton = Instance.new("TextButton")
@@ -110,7 +155,7 @@ openStroke.Thickness = 1.5
 openStroke.Color = Color3.fromRGB(85, 85, 90)
 openStroke.Transparency = 0.25
 
--- 4. LÓGICA DE ARRASTO DO BOTÃO (CORRIGIDA)
+-- Lógica de Arrastar do Botão (Corrigida para não abrir ao soltar)
 local draggingBtn = false
 local dragStartBtn
 local startPosBtn
@@ -144,7 +189,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- 5. JANELA PRINCIPAL
+-- Janela Principal (UI Original do Usuário)
 local main = Instance.new("Frame")
 main.Name = "Main"
 main.Parent = gui
@@ -215,7 +260,7 @@ list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
 
--- 6. MENU DE CONFIGURAÇÕES
+-- 3. MENU DE CONFIGURAÇÕES (Interno)
 local settingsFrame = Instance.new("Frame")
 settingsFrame.Parent = main
 settingsFrame.Size = UDim2.new(1, 0, 1, -42)
@@ -295,22 +340,36 @@ local function createColorPicker(parent, text, defaultColor, callback)
 end
 
 createToggle(settingsFrame, "Habilitar Notificacoes", true, function(v) configData.notificationsEnabled = v end)
+createToggle(settingsFrame, "Trava de Execucao", true, function(v) configData.duplicateLockEnabled = v end)
+createToggle(settingsFrame, "Compartilhamento de Dados", false, function(v) configData.dataSharingEnabled = v end)
+
 createColorPicker(settingsFrame, "Cor Primaria (Fundo)", configData.primaryColor, function(c) main.BackgroundColor3 = c settingsFrame.BackgroundColor3 = c end)
 createColorPicker(settingsFrame, "Cor Secundaria (Texto)", configData.secondaryColor, function(c) title.TextColor3 = c end)
 createColorPicker(settingsFrame, "Cor Terciaria (Botoes)", configData.tertiaryColor, function(c) closeButton.BackgroundColor3 = c end)
 
--- 7. FUNÇÕES DE VEÍCULO
-local function getVehicle()
-    local character = player.Character
-    if not character then return nil end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return nil end
-    local seatPart = humanoid.SeatPart
-    if not seatPart then return nil end
-    return seatPart:FindFirstAncestorOfClass("Model")
-end
+-- 4. LÓGICA DE PERSISTÊNCIA (Compartilhamento de Dados)
+RunService.Heartbeat:Connect(function()
+    if configData.dataSharingEnabled then
+        local vehicle = getVehicle()
+        if vehicle then
+            -- Força as mudanças mesmo que outros entrem
+            for _, d in ipairs(vehicle:GetDescendants()) do
+                if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
+                    -- Aplica a suspensão atual continuamente
+                    local altura = clamp(currentSuspension, alturaMin, alturaMax)
+                    if d:IsA("SpringConstraint") then d.FreeLength = altura end
+                    if d:IsA("PrismaticConstraint") then
+                        d.LimitsEnabled = true
+                        d.LowerLimit = -altura
+                        d.UpperLimit = altura
+                    end
+                end
+            end
+        end
+    end
+end)
 
--- 8. SEÇÕES DE CONTEÚDO
+-- 5. SEÇÕES DE CONTEÚDO (UI Original)
 local function createSection(text)
     local section = Instance.new("Frame")
     section.Parent = scrolling
@@ -345,12 +404,11 @@ inputPlaca.Size = UDim2.new(1, 0, 0, 32)
 inputPlaca.PlaceholderText = "Placa..."
 createButton(empSection, "Aplicar Placa", function()
     local v = getVehicle()
-    if v then 
-        pcall(function() StarterGui:SetCore("SendNotification", {Title = "Sucesso", Text = "Placa aplicada"}) end)
-    else 
-        pcall(function() StarterGui:SetCore("SendNotification", {Title = "Erro", Text = "Sente no banco"}) end)
-    end
+    if v then notify("Sucesso", "Placa aplicada") else notify("Erro", "Sente no banco") end
 end)
+
+local suspSection = createSection("Suspensao")
+createButton(suspSection, "Resetar", function() currentSuspension = 2.5 end)
 
 local statusSection = createSection("Status")
 local statusLabel = Instance.new("TextLabel", statusSection)
@@ -365,7 +423,7 @@ task.spawn(function()
     end
 end)
 
--- 9. EVENTOS FINAIS
+-- 6. EVENTOS FINAIS
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
@@ -400,10 +458,4 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
-pcall(function()
-    StarterGui:SetCore("SendNotification", {
-        Title = "ComitHub",
-        Text = "Sistema carregado!",
-        Duration = 3
-    })
-end)
+notify("ComitHub", "Sistema carregado!")
