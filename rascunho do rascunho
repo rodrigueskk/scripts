@@ -7,15 +7,68 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Sistema de Trava de Execução Duplicada
+-- Sistema de Trava de Execução Duplicada com Aviso Personalizado
 if playerGui:FindFirstChild("ComitHubUI") then
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "Erro de Execução",
-            Text = "Ops, você já executou o script :(\n(Gire a cabeça 90° para ver o rosto)",
-            Duration = 5
-        })
-    end)
+    local errorGui = Instance.new("ScreenGui")
+    errorGui.Name = "ComitHubError"
+    errorGui.Parent = playerGui
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 80)
+    frame.Position = UDim2.new(0.5, -150, 0, -100)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
+    frame.BorderSizePixel = 0
+    frame.Parent = errorGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 2
+    stroke.Color = Color3.fromRGB(255, 50, 50)
+    stroke.Parent = frame
+
+    -- Carinha :( rotacionada 90 graus no sentido horário (fica como ..)
+    -- Representação visual: 
+    -- . .
+    --  ^
+    -- \_/
+    -- Rotacionada: 
+    --  _
+    -- | |
+    --  .
+    --  .
+    -- Como é pixelada e em texto, usaremos caracteres que simulam o ângulo:
+    -- A carinha :( rotacionada 90 graus horário vira algo como .. (olhos em cima) e ) (boca embaixo)
+    -- Mas o usuário quer a carinha ":(" girada.
+    
+    local faceLabel = Instance.new("TextLabel")
+    faceLabel.Size = UDim2.new(0, 60, 1, 0)
+    faceLabel.BackgroundTransparency = 1
+    faceLabel.Font = Enum.Font.Code -- Fonte mono para parecer pixelado
+    faceLabel.TextSize = 35
+    faceLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    faceLabel.Text = "• •\n ∩" -- Representação da carinha girada 90 graus horário
+    faceLabel.Parent = frame
+    
+    local msgLabel = Instance.new("TextLabel")
+    msgLabel.Size = UDim2.new(1, -70, 1, 0)
+    msgLabel.Position = UDim2.new(0, 70, 0, 0)
+    msgLabel.BackgroundTransparency = 1
+    msgLabel.Font = Enum.Font.GothamBold
+    msgLabel.TextSize = 14
+    msgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+    msgLabel.Text = "Ops, você já executou o script"
+    msgLabel.Parent = frame
+    
+    -- Animação de entrada e saída
+    frame:TweenPosition(UDim2.new(0.5, -150, 0, 50), "Out", "Back", 0.5)
+    task.wait(4)
+    frame:TweenPosition(UDim2.new(0.5, -150, 0, -100), "In", "Quad", 0.5)
+    task.wait(0.5)
+    errorGui:Destroy()
     return
 end
 
@@ -497,7 +550,7 @@ local function createSlider(parent, config)
     }
 end
 
--- SEÇÃO: EMPLACAMENTO (Nova Categoria)
+-- SEÇÃO: EMPLACAMENTO
 local emplacamentoSection = createSection("Emplacamento")
 local inputPlaca = Instance.new("TextBox")
 inputPlaca.Parent = emplacamentoSection
@@ -521,7 +574,6 @@ createButton(emplacamentoSection, "Aplicar Placa", function()
         local found = false
         for _, obj in ipairs(vehicle:GetDescendants()) do
             if obj:IsA("TextLabel") or obj:IsA("SurfaceGui") or obj.Name:lower():find("placa") then
-                -- Lógica genérica para tentar aplicar a placa
                 if obj:IsA("TextLabel") then
                     obj.Text = placaText
                     found = true
@@ -554,7 +606,7 @@ createButton(emplacamentoSection, "Aplicar Placa", function()
     end
 end)
 
--- SEÇÃO: STATUS (Nova Categoria)
+-- SEÇÃO: STATUS
 local statusSection = createSection("Status do Sistema")
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Parent = statusSection
