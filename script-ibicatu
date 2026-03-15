@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Configurações Globais
+
 local alturaMin = 0.05
 local alturaMax = 8
 local velocityMult = 0.025
@@ -133,7 +133,7 @@ local function applyLocalSuspension(altura)
     end
 end
 
--- Lógica de Velocidade e Frenagem (Multiplicadores)
+
 local function applyLocalSpeed(value)
     velocityMult = value / 1000
 end
