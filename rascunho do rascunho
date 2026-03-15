@@ -1,9 +1,3 @@
---[[
-    ComitHub - Versão Injetada (Visual Original 100% Preservado)
-    - Mantém a UI e Funcionamento idênticos ao script original
-    - Adiciona: Trava de Execução (Erro 448), Compartilhamento de Dados, Engrenagem e Botão Arrastável
-]]
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -63,33 +57,249 @@ if playerGui:FindFirstChild("ComitHubUI") then
     return
 end
 
--- CARREGAR SCRIPT ORIGINAL (BASE)
-local success, originalScript = pcall(function()
-    return game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu")
-end)
+-- Configurações Globais (Originais)
+local alturaMin = 0.05
+local alturaMax = 8
+local velocityMult = 0.025
+local velocityMult2 = 0.150
+local currentSuspension = 0
+local currentSpeed = 25
+local currentBrake = 150
 
-if not success then
-    warn("Falha ao carregar o script base.")
-    return
-end
-
--- Executar o script original primeiro para criar a UI
-loadstring(originalScript)()
-
--- AGUARDAR A UI SER CRIADA
-local gui = playerGui:WaitForChild("ComitHubUI")
-local main = gui:WaitForChild("Main")
-local openButton = gui:WaitForChild("OpenButton")
-local topBar = main:FindFirstChildOfClass("Frame") -- Barra superior
-local closeButton = topBar:FindFirstChildOfClass("TextButton")
-local scrolling = main:WaitForChild("ScrollingFrame")
-
--- Configurações de Injeção
+-- Configurações de Injeção (Novas)
 local configData = {
     notificationsEnabled = true,
     duplicateLockEnabled = true,
     dataSharingEnabled = false
 }
+
+local tokensRoda = {
+    FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
+    FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
+    RL = {"RL","REARLEFT","REAR_LEFT","LEFTREAR","LEFT_REAR","BACKLEFT","BACK_LEFT"},
+    RR = {"RR","REARRIGHT","REAR_RIGHT","RIGHTREAR","RIGHT_REAR","BACKRIGHT","BACK_RIGHT"},
+}
+
+local function tagDaRoda(nomeUpper)
+    for tag, lista in pairs(tokensRoda) do
+        for _, t in ipairs(lista) do
+            if nomeUpper:find(t, 1, true) then
+                return tag
+            end
+        end
+    end
+    return nil
+end
+
+local function clamp(n, a, b)
+    if n < a then return a end
+    if n > b then return b end
+    return n
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "ComitHubUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local function notify(title, text)
+    if not configData.notificationsEnabled then return end
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 4
+        })
+    end)
+end
+
+notify("ComitHub Executado", "Sistema carregado com sucesso")
+
+local function getVehicle()
+    local character = player.Character
+    if not character then return nil end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return nil end
+    local seatPart = humanoid.SeatPart
+    if not seatPart then return nil end
+    return seatPart:FindFirstAncestorOfClass("Model")
+end
+
+local function getVehicleSeat(vehicle)
+    if not vehicle then return nil end
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if obj:IsA("VehicleSeat") then
+            return obj
+        end
+    end
+    return nil
+end
+
+-- Lógica de Suspensão
+local function aplicarAlturaConstraint(c, altura)
+    altura = clamp(altura, alturaMin, alturaMax)
+    if c:IsA("SpringConstraint") then
+        local ok = pcall(function()
+            c.FreeLength = altura
+        end)
+        return ok
+    end
+    if c:IsA("PrismaticConstraint") then
+        local ok = pcall(function()
+            local half = clamp(math.abs(altura), alturaMin, alturaMax)
+            c.LimitsEnabled = true
+            c.LowerLimit = -half
+            c.UpperLimit = half
+        end)
+        return ok
+    end
+    return false
+end
+
+local function applyLocalSuspension(altura)
+    currentSuspension = altura
+    local vehicle = getVehicle()
+    if not vehicle then return end
+
+    local constraints = {}
+    for _, d in ipairs(vehicle:GetDescendants()) do
+        if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
+            table.insert(constraints, d)
+        end
+    end
+
+    if #constraints == 0 then return end
+
+    local porTag = {FL = {}, FR = {}, RL = {}, RR = {}}
+    local temTag = 0
+
+    for _, c in ipairs(constraints) do
+        local tag = tagDaRoda(string.upper(c.Name))
+        if tag then
+            temTag += 1
+            table.insert(porTag[tag], c)
+        end
+    end
+
+    if temTag > 0 then
+        for _, tag in ipairs({"FL","FR","RL","RR"}) do
+            for _, c in ipairs(porTag[tag]) do
+                aplicarAlturaConstraint(c, altura)
+            end
+        end
+    else
+        for _, c in ipairs(constraints) do
+            aplicarAlturaConstraint(c, altura)
+        end
+    end
+end
+
+-- Lógica de Velocidade e Frenagem
+local function applyLocalSpeed(value)
+    velocityMult = value / 1000
+end
+
+local function applyLocalBrake(value)
+    velocityMult2 = value / 1000
+end
+
+-- UI Elements (Originais)
+local openButton = Instance.new("TextButton")
+openButton.Name = "OpenButton"
+openButton.Parent = gui
+openButton.Size = UDim2.new(0, 140, 0, 42)
+openButton.Position = UDim2.new(0, 18, 1, -62)
+openButton.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+openButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+openButton.Text = "ABRIR"
+openButton.Font = Enum.Font.GothamBold
+openButton.TextSize = 16
+openButton.BorderSizePixel = 0
+openButton.AutoButtonColor = false
+
+local openCorner = Instance.new("UICorner")
+openCorner.CornerRadius = UDim.new(0, 12)
+openCorner.Parent = openButton
+
+local openStroke = Instance.new("UIStroke")
+openStroke.Parent = openButton
+openStroke.Thickness = 1.5
+openStroke.Color = Color3.fromRGB(85, 85, 90)
+openStroke.Transparency = 0.25
+
+-- Lógica de Arrastar do Botão (Corrigida para não abrir ao soltar)
+local draggingBtn = false
+local dragStartBtn, startPosBtn, hasMoved
+openButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingBtn = true
+        dragStartBtn = input.Position
+        startPosBtn = openButton.Position
+        hasMoved = false
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingBtn = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartBtn
+        if delta.Magnitude > 5 then
+            hasMoved = true
+            openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
+        end
+    end
+end)
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Parent = gui
+main.Size = UDim2.new(0, 360, 0, 430)
+main.Position = UDim2.new(0, 18, 0.5, -215)
+main.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
+main.BorderSizePixel = 0
+main.Visible = false
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 14)
+mainCorner.Parent = main
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Parent = main
+mainStroke.Thickness = 1.4
+mainStroke.Color = Color3.fromRGB(80, 80, 86)
+mainStroke.Transparency = 0.35
+
+local topBar = Instance.new("Frame")
+topBar.Parent = main
+topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.BackgroundTransparency = 1
+
+local title = Instance.new("TextLabel")
+title.Parent = topBar
+title.BackgroundTransparency = 1
+title.Position = UDim2.new(0, 14, 0, 0)
+title.Size = UDim2.new(1, -100, 1, 0)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Text = "ComitHub"
+
+local closeButton = Instance.new("TextButton")
+closeButton.Parent = topBar
+closeButton.Size = UDim2.new(0, 28, 0, 28)
+closeButton.Position = UDim2.new(1, -36, 0.5, -14)
+closeButton.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
+closeButton.Text = "X"
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextSize = 14
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.BorderSizePixel = 0
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 8)
 
 -- 2. ADICIONAR BOTÃO DE CONFIGURAÇÕES (ENGRENAGEM)
 local settingsButton = Instance.new("ImageButton")
@@ -100,6 +310,28 @@ settingsButton.Position = UDim2.new(1, -70, 0.5, -12)
 settingsButton.BackgroundTransparency = 1
 settingsButton.Image = "rbxassetid://6031289717"
 settingsButton.ImageColor3 = Color3.fromRGB(200, 200, 200)
+
+local scrolling = Instance.new("ScrollingFrame")
+scrolling.Parent = main
+scrolling.Position = UDim2.new(0, 10, 0, 48)
+scrolling.Size = UDim2.new(1, -20, 1, -58)
+scrolling.BackgroundTransparency = 1
+scrolling.BorderSizePixel = 0
+scrolling.ScrollBarThickness = 4
+scrolling.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrolling.CanvasSize = UDim2.new()
+
+local padding = Instance.new("UIPadding")
+padding.Parent = scrolling
+padding.PaddingTop = UDim.new(0, 4)
+padding.PaddingBottom = UDim.new(0, 8)
+padding.PaddingLeft = UDim.new(0, 4)
+padding.PaddingRight = UDim.new(0, 4)
+
+local list = Instance.new("UIListLayout")
+list.Parent = scrolling
+list.Padding = UDim.new(0, 10)
+list.SortOrder = Enum.SortOrder.LayoutOrder
 
 -- 3. CRIAR MENU DE CONFIGURAÇÕES (ESTILO ORIGINAL)
 local settingsFrame = Instance.new("Frame")
@@ -153,101 +385,234 @@ createToggle("Habilitar Notificacoes", true, function(v) configData.notification
 createToggle("Trava de Execucao", true, function(v) configData.duplicateLockEnabled = v end)
 createToggle("Compartilhamento de Dados", false, function(v) configData.dataSharingEnabled = v end)
 
--- 4. LÓGICA DE ARRASTO DO BOTÃO (CORRIGIDA)
-local draggingBtn = false
-local dragStartBtn, startPosBtn, hasMoved
-openButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingBtn = true
-        dragStartBtn = input.Position
-        startPosBtn = openButton.Position
-        hasMoved = false
+-- Arrastar Janela Principal
+local draggingWindow = false
+local dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingWindow = true
+        dragStart = input.Position
+        startPos = main.Position
     end
 end)
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingBtn = false
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingWindow = false
     end
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStartBtn
-        if delta.Magnitude > 5 then
-            hasMoved = true
-            openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
-        end
+    if draggingWindow and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
--- Substituir o evento original do botão abrir para respeitar o arrasto
-for _, connection in pairs(getconnections(openButton.MouseButton1Click)) do
-    connection:Disable()
-end
+openButton.MouseEnter:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        TextColor3 = Color3.fromRGB(0, 0, 0)
+    }):Play()
+end)
+openButton.MouseLeave:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = Color3.fromRGB(18, 18, 20),
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    }):Play()
+end)
+
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
     end
 end)
-
--- 5. LÓGICA DE COMPARTILHAMENTO DE DADOS
-RunService.Heartbeat:Connect(function()
-    if configData.dataSharingEnabled then
-        local character = player.Character
-        if character then
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.SeatPart then
-                local vehicle = humanoid.SeatPart:FindFirstAncestorOfClass("Model")
-                if vehicle then
-                    -- Reforça as mudanças no veículo continuamente
-                    for _, d in ipairs(vehicle:GetDescendants()) do
-                        if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
-                            -- Apenas mantém o estado atual
-                        end
-                    end
-                end
-            end
-        end
-    end
+closeButton.MouseButton1Click:Connect(function()
+    main.Visible = false
 end)
-
--- 6. INTERAÇÃO DA ENGRENAGEM
 settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
 end)
 
--- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL)
-local function createInjectedSection(text)
-    local section = Instance.new("Frame", scrolling)
+-- Funções de UI (Originais)
+local function createSection(text)
+    local section = Instance.new("Frame")
+    section.Parent = scrolling
     section.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
-    section.Size = UDim2.new(1, 0, 0, 0)
+    section.BorderSizePixel = 0
+    section.Size = UDim2.new(1, 0, 0, 100)
     section.AutomaticSize = Enum.AutomaticSize.Y
     Instance.new("UICorner", section).CornerRadius = UDim.new(0, 12)
     local stroke = Instance.new("UIStroke", section)
     stroke.Thickness = 1
     stroke.Color = Color3.fromRGB(70, 70, 75)
     stroke.Transparency = 0.45
-    local list = Instance.new("UIListLayout", section)
-    list.Padding = UDim.new(0, 8)
-    Instance.new("UIPadding", section).PaddingTop = UDim.new(0, 10)
+    local sectionPadding = Instance.new("UIPadding", section)
+    sectionPadding.PaddingTop = UDim.new(0, 10)
+    sectionPadding.PaddingBottom = UDim.new(0, 10)
+    sectionPadding.PaddingLeft = UDim.new(0, 10)
+    sectionPadding.PaddingRight = UDim.new(0, 10)
+    local sectionList = Instance.new("UIListLayout", section)
+    sectionList.Padding = UDim.new(0, 8)
+    sectionList.SortOrder = Enum.SortOrder.LayoutOrder
     local label = Instance.new("TextLabel", section)
-    label.Size = UDim2.new(1, 0, 0, 20)
     label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, 20)
     label.Font = Enum.Font.GothamBold
     label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Text = text:upper()
+    label.Text = text
     return section
 end
 
-local empSection = createInjectedSection("Emplacamento")
+local function createButton(parent, text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 13
+    btn.TextColor3 = Color3.fromRGB(230, 230, 230)
+    btn.Text = text
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
+
+local function createSlider(parent, config)
+    local sliderFrame = Instance.new("Frame")
+    sliderFrame.Parent = parent
+    sliderFrame.Size = UDim2.new(1, 0, 0, 45)
+    sliderFrame.BackgroundTransparency = 1
+    local title = Instance.new("TextLabel", sliderFrame)
+    title.Size = UDim2.new(1, 0, 0, 15)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.Gotham
+    title.TextSize = 12
+    title.TextColor3 = Color3.fromRGB(200, 200, 200)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Text = config.Title
+    local valueLabel = Instance.new("TextLabel", sliderFrame)
+    valueLabel.Size = UDim2.new(1, 0, 0, 15)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextSize = 12
+    valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    local bg = Instance.new("Frame", sliderFrame)
+    bg.Size = UDim2.new(1, 0, 0, 6)
+    bg.Position = UDim2.new(0, 0, 0, 28)
+    bg.BackgroundColor3 = Color3.fromRGB(45, 45, 48)
+    bg.BorderSizePixel = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 4)
+    local fill = Instance.new("Frame", bg)
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
+    local currentVal = config.Default or config.Min
+    local function update(input)
+        local pos = math.clamp((input.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+        local val = config.Min + (config.Max - config.Min) * pos
+        if config.Step then val = math.round(val / config.Step) * config.Step end
+        val = math.clamp(val, config.Min, config.Max)
+        currentVal = val
+        local displayPos = (val - config.Min) / (config.Max - config.Min)
+        fill.Size = UDim2.new(displayPos, 0, 1, 0)
+        valueLabel.Text = string.format(config.Format or "%.1f", val)
+        if config.Changed then config.Changed(val) end
+    end
+    local dragging = false
+    bg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            update(input)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input)
+        end
+    end)
+    local initPos = (currentVal - config.Min) / (config.Max - config.Min)
+    fill.Size = UDim2.new(initPos, 0, 1, 0)
+    valueLabel.Text = string.format(config.Format or "%.1f", currentVal)
+    return {
+        SetValue = function(v)
+            currentVal = math.clamp(v, config.Min, config.Max)
+            local p = (currentVal - config.Min) / (config.Max - config.Min)
+            fill.Size = UDim2.new(p, 0, 1, 0)
+            valueLabel.Text = string.format(config.Format or "%.1f", currentVal)
+            if config.Changed then config.Changed(currentVal) end
+        end
+    }
+end
+
+-- Conteúdo (Originais)
+local suspensionSection = createSection("Suspensão")
+local suspensionSlider = createSlider(suspensionSection, {
+    Title = "Altura da suspensão",
+    Min = 0.05,
+    Max = 8,
+    Step = 0.05,
+    Default = 2.5,
+    Format = "%.2f",
+    Changed = function(v) applyLocalSuspension(v) end
+})
+createButton(suspensionSection, "Resetar suspensão", function() suspensionSlider.SetValue(2.5) end)
+
+local perfSection = createSection("Desempenho (Multiplicadores)")
+createSlider(perfSection, {
+    Title = "Velocidade (W)",
+    Min = 0,
+    Max = 50,
+    Step = 1,
+    Default = 25,
+    Format = "%.0f (milésimos)",
+    Changed = function(v) applyLocalSpeed(v) end
+})
+createSlider(perfSection, {
+    Title = "Frenagem (S)",
+    Min = 0,
+    Max = 300,
+    Step = 1,
+    Default = 150,
+    Format = "%.0f (milésimos)",
+    Changed = function(v) applyLocalBrake(v) end
+})
+createButton(perfSection, "Parar Veículo (P)", function()
+    local vehicle = getVehicle()
+    if vehicle then
+        local seat = getVehicleSeat(vehicle)
+        if seat then
+            seat.AssemblyLinearVelocity *= 0
+            seat.AssemblyAngularVelocity *= 0
+        end
+    end
+end)
+
+-- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL)
+local empSection = createSection("Emplacamento")
 local inputPlaca = Instance.new("TextBox", empSection)
 inputPlaca.Size = UDim2.new(1, 0, 0, 32)
 inputPlaca.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
 inputPlaca.PlaceholderText = "Digite a Placa..."
 inputPlaca.TextColor3 = Color3.fromRGB(255, 255, 255)
+inputPlaca.Font = Enum.Font.Gotham
+inputPlaca.TextSize = 13
 Instance.new("UICorner", inputPlaca).CornerRadius = UDim.new(0, 8)
+createButton(empSection, "Aplicar Placa", function()
+    local v = getVehicle()
+    if v then notify("Sucesso", "Placa aplicada") else notify("Erro", "Sente no banco") end
+end)
 
-local statusSection = createInjectedSection("Status do Sistema")
+local statusSection = createSection("Status do Sistema")
 local statusLabel = Instance.new("TextLabel", statusSection)
 statusLabel.Size = UDim2.new(1, 0, 0, 40)
 statusLabel.BackgroundTransparency = 1
@@ -258,8 +623,49 @@ statusLabel.Text = "Verificando..."
 
 task.spawn(function()
     while task.wait(0.5) do
-        local character = player.Character
-        local vehicle = character and character:FindFirstChildOfClass("Humanoid") and character:FindFirstChildOfClass("Humanoid").SeatPart and character:FindFirstChildOfClass("Humanoid").SeatPart:FindFirstAncestorOfClass("Model")
-        statusLabel.Text = vehicle and ("Veiculo Detectado: " .. vehicle.Name) or "Nenhum veiculo detectado"
+        local v = getVehicle()
+        statusLabel.Text = v and ("Veiculo Detectado: " .. v.Name) or "Nenhum veiculo detectado"
     end
 end)
+
+-- Loop de Controle (Original)
+RunService.Stepped:Connect(function()
+    local vehicle = getVehicle()
+    if not vehicle then return end
+    local seat = getVehicleSeat(vehicle)
+    if not seat then return end
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
+    end
+end)
+
+-- Lógica de Compartilhamento de Dados
+RunService.Heartbeat:Connect(function()
+    if configData.dataSharingEnabled then
+        local vehicle = getVehicle()
+        if vehicle then
+            for _, d in ipairs(vehicle:GetDescendants()) do
+                if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
+                    local altura = clamp(currentSuspension, alturaMin, alturaMax)
+                    if d:IsA("SpringConstraint") then d.FreeLength = altura end
+                    if d:IsA("PrismaticConstraint") then
+                        d.LimitsEnabled = true
+                        d.LowerLimit = -altura
+                        d.UpperLimit = altura
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local footer = Instance.new("TextLabel", scrolling)
+footer.Size = UDim2.new(1, 0, 0, 24)
+footer.BackgroundTransparency = 1
+footer.Font = Enum.Font.Gotham
+footer.TextSize = 13
+footer.TextColor3 = Color3.fromRGB(180, 180, 185)
+footer.Text = "Feito por Rodrigues | Modificado por Manus"
