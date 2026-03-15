@@ -420,11 +420,13 @@ openButton.MouseLeave:Connect(function()
     }):Play()
 end)
 
+-- CORREÇÃO DO CLIQUE DO BOTÃO ABRIR
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
     end
 end)
+
 closeButton.MouseButton1Click:Connect(function()
     main.Visible = false
 end)
