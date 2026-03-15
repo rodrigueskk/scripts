@@ -1,12 +1,25 @@
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
-local RunService = game:GetService("RunService")
-
-
 
 local player = Players.LocalPlayer
+
+if not player:FindFirstChild("ComitHub_Notificado") then
+	local flag = Instance.new("BoolValue")
+	flag.Name = "ComitHub_Notificado"
+	flag.Parent = player
+
+	task.defer(function()
+		pcall(function()
+			StarterGui:SetCore("SendNotification", {
+				Title = "ComitHub Executado",
+				Text = "Feito Por Rodrigues",
+				Duration = 5
+			})
+		end)
+	end)
+end
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu"))()
 local playerGui = player:WaitForChild("PlayerGui")
 
 
