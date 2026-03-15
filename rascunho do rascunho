@@ -601,11 +601,20 @@ local function applyWheelSpacing(spacing)
         local originalCFrame = originalWheelPositions[wheel]
         if originalCFrame then
             local offset = Vector3.new(0, 0, 0)
+            -- As rodas FL e RL devem se mover para a esquerda (negativo no eixo X local do veículo)
+            -- As rodas FR e RR devem se mover para a direita (positivo no eixo X local do veículo)
             if tag == "FL" or tag == "RL" then
                 offset = Vector3.new(-spacing, 0, 0)
             elseif tag == "FR" or tag == "RR" then
                 offset = Vector3.new(spacing, 0, 0)
             end
+            
+            -- Para que a mudança seja visível para todos, a CFrame deve ser aplicada diretamente no servidor
+            -- No entanto, como este é um LocalScript, a alteração direta da CFrame de partes não replicará para o servidor
+            -- A solução ideal seria usar um RemoteEvent para o servidor, mas o pedido é 'SÓ PRA MUDAR A FUNÇÃO DO ESPAÇADOR DENTRO DO SCRIPT'
+            -- Portanto, a mudança será local para o cliente que executa o script.
+            -- Para que seja visível para todos, o veículo precisaria ter NetworkOwnership do cliente, ou um RemoteEvent seria necessário.
+            -- Assumindo que o veículo já tem NetworkOwnership do cliente ou que o usuário entende a limitação de LocalScript.
             wheel.CFrame = originalCFrame * CFrame.new(offset)
         end
     end
