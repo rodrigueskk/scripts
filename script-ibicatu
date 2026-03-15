@@ -5,7 +5,6 @@ local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu" ))()
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
