@@ -15,7 +15,6 @@ local velocityMult2 = 0.150
 local currentSuspension = 0
 local currentSpeed = 25
 local currentBrake = 150
-local currentSpacer = 0
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -23,8 +22,6 @@ local tokensRoda = {
     RL = {"RL","REARLEFT","REAR_LEFT","LEFTREAR","LEFT_REAR","BACKLEFT","BACK_LEFT"},
     RR = {"RR","REARRIGHT","REAR_RIGHT","RIGHTREAR","RIGHT_REAR","BACKRIGHT","BACK_RIGHT"},
 }
-
-local spacerBaseCFrames = {}
 
 local function tagDaRoda(nomeUpper)
     for tag, lista in pairs(tokensRoda) do
@@ -143,36 +140,6 @@ end
 
 local function applyLocalBrake(value)
     velocityMult2 = value / 1000
-end
-
--- Lógica de Espaçador
-local function applyLocalSpacer(value)
-    currentSpacer = value
-    local vehicle = getVehicle()
-    if not vehicle then return end
-
-    local rightVector = vehicle:GetPivot().RightVector
-
-    for _, d in ipairs(vehicle:GetDescendants()) do
-        if d:IsA("BasePart") then
-            local tag = tagDaRoda(string.upper(d.Name))
-            if tag then
-                if not spacerBaseCFrames[d] then
-                    spacerBaseCFrames[d] = d.CFrame
-                end
-
-                local dir = 0
-                if tag == "FL" or tag == "RL" then
-                    dir = -1
-                elseif tag == "FR" or tag == "RR" then
-                    dir = 1
-                end
-
-                local baseCf = spacerBaseCFrames[d]
-                d.CFrame = baseCf + (rightVector * (value * dir))
-            end
-        end
-    end
 end
 
 -- UI rascunhos para teste
@@ -539,23 +506,6 @@ createButton(suspensionSection, "Resetar suspensão", function()
     suspensionSlider.SetValue(2.5)
 end)
 
-local spacerSection = createSection("Espaçador")
-local spacerSlider = createSlider(spacerSection, {
-    Title = "Espaçamento das rodas",
-    Min = 0,
-    Max = 3,
-    Step = 0.01,
-    Default = 0,
-    Format = "%.2f",
-    Changed = function(v)
-        applyLocalSpacer(v)
-    end
-})
-
-createButton(spacerSection, "Resetar espaçador", function()
-    spacerSlider.SetValue(0)
-end)
-
 local perfSection = createSection("Desempenho (Multiplicadores)")
 createSlider(perfSection, {
     Title = "Velocidade (W)",
@@ -609,6 +559,57 @@ RunService.Stepped:Connect(function()
         seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
 end)
+
+local wheelSpacingSection = createSection("Espaçamento das Rodas")
+createSlider(wheelSpacingSection, {
+    Title = "Espaçamento",
+    Min = 0,
+    Max = 5,
+    Step = 0.1,
+    Default = 0,
+    Format = "%.1f",
+    Changed = function(v)
+        applyWheelSpacing(v)
+    end
+})
+
+local originalWheelPositions = {}
+
+local function getWheels(vehicle)
+    local wheels = {}
+    for _, part in ipairs(vehicle:GetDescendants()) do
+        if part:IsA("Part") or part:IsA("MeshPart") then
+            local tag = tagDaRoda(string.upper(part.Name))
+            if tag then
+                wheels[tag] = part
+                if not originalWheelPositions[part] then
+                    originalWheelPositions[part] = part.CFrame
+                end
+            end
+        end
+    end
+    return wheels
+end
+
+local function applyWheelSpacing(spacing)
+    local vehicle = getVehicle()
+    if not vehicle then return end
+
+    local wheels = getWheels(vehicle)
+
+    for tag, wheel in pairs(wheels) do
+        local originalCFrame = originalWheelPositions[wheel]
+        if originalCFrame then
+            local offset = Vector3.new(0, 0, 0)
+            if tag == "FL" or tag == "RL" then
+                offset = Vector3.new(-spacing, 0, 0)
+            elseif tag == "FR" or tag == "RR" then
+                offset = Vector3.new(spacing, 0, 0)
+            end
+            wheel.CFrame = originalCFrame * CFrame.new(offset)
+        end
+    end
+end
 
 local footer = Instance.new("TextLabel")
 footer.Parent = scrolling
