@@ -19,9 +19,6 @@ local configData = {
 
 -- Sistema de Trava de Execução Duplicada
 if playerGui:FindFirstChild("ComitHubUI") then
-    -- Verifica se a trava está habilitada na instância existente (se possível) ou apenas bloqueia
-    local existing = playerGui:ComitHubUI
-    -- Se a trava estiver ligada, mostra o erro
     local errorGui = Instance.new("ScreenGui")
     errorGui.Name = "ComitHubError"
     errorGui.Parent = playerGui
@@ -247,7 +244,7 @@ settingsButton.Parent = topBar
 settingsButton.Size = UDim2.new(0, 24, 0, 24)
 settingsButton.Position = UDim2.new(1, -70, 0.5, -12)
 settingsButton.BackgroundTransparency = 1
-settingsButton.Image = "rbxassetid://6031289717" -- Ícone de engrenagem
+settingsButton.Image = "rbxassetid://6031289717"
 settingsButton.ImageColor3 = Color3.fromRGB(200, 200, 200)
 
 local scrolling = Instance.new("ScrollingFrame")
@@ -265,7 +262,7 @@ list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Menu de Configurações (Frame Oculto)
+-- Menu de Configurações
 local settingsFrame = Instance.new("Frame")
 settingsFrame.Parent = main
 settingsFrame.Size = UDim2.new(1, 0, 1, -42)
@@ -342,7 +339,6 @@ local function createColorPicker(parent, text, defaultColor, callback)
     colorBtn.Parent = frame
     
     colorBtn.MouseButton1Click:Connect(function()
-        -- Simulação de paleta primária (alterna entre cores pré-definidas para o exemplo)
         local colors = {Color3.fromRGB(17,17,19), Color3.fromRGB(30,30,35), Color3.fromRGB(255,255,255), Color3.fromRGB(255,0,0), Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255)}
         local nextColor = colors[math.random(1, #colors)]
         colorBtn.BackgroundColor3 = nextColor
@@ -350,7 +346,6 @@ local function createColorPicker(parent, text, defaultColor, callback)
     end)
 end
 
--- Preencher Configurações
 createToggle(settingsFrame, "Habilitar Notificacoes", true, function(v) configData.notificationsEnabled = v end)
 createToggle(settingsFrame, "Trava de Execucao", true, function(v) configData.duplicateLockEnabled = v end)
 
@@ -363,7 +358,6 @@ end)
 createColorPicker(settingsFrame, "Cor Secundaria (Texto)", configData.secondaryColor, function(c) 
     configData.secondaryColor = c
     title.TextColor3 = c
-    -- Atualizar outros textos seria necessário aqui
 end)
 
 createColorPicker(settingsFrame, "Cor Terciaria (Botoes)", configData.tertiaryColor, function(c) 
@@ -389,7 +383,6 @@ fontBtn.MouseButton1Click:Connect(function()
     fontBtn.Font = configData.currentFont
 end)
 
--- Eventos de Botões
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
@@ -404,14 +397,14 @@ settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
 end)
 
--- Seções Originais (Resumidas para o exemplo)
 local function createSection(text)
     local section = Instance.new("Frame")
     section.Parent = scrolling
     section.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
     section.Size = UDim2.new(1, 0, 0, 0)
     section.AutomaticSize = Enum.AutomaticSize.Y
-    Instance.new("UICorner", section).CornerRadius = UDim.new(0, 12)
+    local corner = Instance.new("UICorner", section)
+    corner.CornerRadius = UDim.new(0, 12)
     local list = Instance.new("UIListLayout", section)
     list.Padding = UDim.new(0, 8)
     local label = Instance.new("TextLabel", section)
@@ -429,11 +422,11 @@ local function createButton(parent, text, callback)
     btn.BackgroundColor3 = configData.tertiaryColor
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    local corner = Instance.new("UICorner", btn)
+    corner.CornerRadius = UDim.new(0, 8)
     btn.MouseButton1Click:Connect(callback)
 end
 
--- Conteúdo
 local empSection = createSection("Emplacamento")
 local inputPlaca = Instance.new("TextBox", empSection)
 inputPlaca.Size = UDim2.new(1, 0, 0, 32)
@@ -459,7 +452,6 @@ task.spawn(function()
     end
 end)
 
--- Arrastar Janela
 local draggingWindow = false
 local dragStart, startPos
 topBar.InputBegan:Connect(function(input)
