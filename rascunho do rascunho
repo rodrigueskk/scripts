@@ -1,6 +1,6 @@
 --[[
-    ComitHub - Versão Injetada (Visual Original Preservado)
-    - Mantém 100% da UI e Funcionamento do script-ibicatu
+    ComitHub - Versão Injetada (Visual Original 100% Preservado)
+    - Mantém a UI e Funcionamento idênticos à print enviada
     - Adiciona: Trava de Execução (Erro 448), Compartilhamento de Dados, Engrenagem e Botão Arrastável
 ]]
 
@@ -63,13 +63,6 @@ if playerGui:FindFirstChild("ComitHubUI") then
     return
 end
 
--- Configurações de Injeção
-local configData = {
-    notificationsEnabled = true,
-    duplicateLockEnabled = true,
-    dataSharingEnabled = false
-}
-
 -- CARREGAR SCRIPT ORIGINAL (BASE)
 local success, originalScript = pcall(function()
     return game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu")
@@ -87,9 +80,16 @@ loadstring(originalScript)()
 local gui = playerGui:WaitForChild("ComitHubUI")
 local main = gui:WaitForChild("Main")
 local openButton = gui:WaitForChild("OpenButton")
-local topBar = main:WaitForChild("Frame") -- No original, a topBar é um Frame sem nome dentro de Main
+local topBar = main:FindFirstChildOfClass("Frame") -- Barra superior
 local closeButton = topBar:FindFirstChildOfClass("TextButton")
 local scrolling = main:WaitForChild("ScrollingFrame")
+
+-- Configurações de Injeção
+local configData = {
+    notificationsEnabled = true,
+    duplicateLockEnabled = true,
+    dataSharingEnabled = false
+}
 
 -- 2. ADICIONAR BOTÃO DE CONFIGURAÇÕES (ENGRENAGEM)
 local settingsButton = Instance.new("ImageButton")
@@ -101,7 +101,7 @@ settingsButton.BackgroundTransparency = 1
 settingsButton.Image = "rbxassetid://6031289717"
 settingsButton.ImageColor3 = Color3.fromRGB(200, 200, 200)
 
--- 3. CRIAR MENU DE CONFIGURAÇÕES (ESTILO ORIGINAL)
+-- 3. CRIAR MENU DE CONFIGURAÇÕES (ESTILO ORIGINAL DA PRINT)
 local settingsFrame = Instance.new("Frame")
 settingsFrame.Name = "SettingsFrame"
 settingsFrame.Parent = main
@@ -192,15 +192,13 @@ end)
 -- 5. LÓGICA DE COMPARTILHAMENTO DE DADOS
 RunService.Heartbeat:Connect(function()
     if configData.dataSharingEnabled then
-        -- Lógica para manter as mudanças no veículo (suspensão/velocidade)
-        -- Como o script original já tem loops, aqui apenas reforçamos a persistência
         local character = player.Character
         if character then
             local humanoid = character:FindFirstChildOfClass("Humanoid")
             if humanoid and humanoid.SeatPart then
                 local vehicle = humanoid.SeatPart:FindFirstAncestorOfClass("Model")
                 if vehicle then
-                    -- Reforça as constraints continuamente
+                    -- Reforça as mudanças no veículo continuamente
                     for _, d in ipairs(vehicle:GetDescendants()) do
                         if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
                             -- Apenas mantém o estado atual
@@ -217,8 +215,7 @@ settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
 end)
 
--- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL)
--- No original, createSection é uma função local, vamos recriar o estilo
+-- 7. ADICIONAR SEÇÃO DE STATUS E EMPLACAMENTO (ESTILO ORIGINAL DA PRINT)
 local function createInjectedSection(text)
     local section = Instance.new("Frame", scrolling)
     section.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
