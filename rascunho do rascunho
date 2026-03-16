@@ -26,10 +26,32 @@ local savedConfig = {
     grip       = 1,
 }
 
--- Estado das rodas (tamanho, espaçador, camber)
-local currentWheelSize   = 1    -- escala multiplicadora (1 = original)
-local currentSpacer      = 0    -- deslocamento lateral em studs
-local currentCamber      = 0    -- ângulo em graus
+-- Tema de cores (salvo localmente)
+local tema = {
+    primaria    = Color3.fromRGB(17,  17,  19),   -- fundo geral
+    secundaria  = Color3.fromRGB(255, 255, 255),  -- hover botão abrir
+    terciaria   = Color3.fromRGB(255, 255, 255),  -- textos
+    quaternaria = Color3.fromRGB(255, 255, 255),  -- sliders (knob/fill)
+}
+
+-- Carrega tema salvo
+local ok, saved = pcall(function()
+    return game:GetService("HttpService"):JSONDecode(
+        game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("__ComitHubTema") and
+        game:GetService("Players").LocalPlayer.PlayerGui.__ComitHubTema.Value or "{}"
+    )
+end)
+if ok and saved and saved.p then
+    tema.primaria    = Color3.fromRGB(saved.p[1],  saved.p[2],  saved.p[3])
+    tema.secundaria  = Color3.fromRGB(saved.s[1],  saved.s[2],  saved.s[3])
+    tema.terciaria   = Color3.fromRGB(saved.t[1],  saved.t[2],  saved.t[3])
+    tema.quaternaria = Color3.fromRGB(saved.q[1],  saved.q[2],  saved.q[3])
+end
+
+-- Estado das rodas (não usadas mais, mantidas para compatibilidade)
+local currentWheelSize = 1
+local currentSpacer    = 0
+local currentCamber    = 0
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -174,125 +196,6 @@ local function applyTireGrip(vehicle, gripValue)
         end
     end
 end
-
--- ============================================================
--- LÓGICA DE RODAS: Tamanho, Espaçador e Camber
--- Abordagem: modifica Motor6D C0/C1 e Size das peças de roda
--- Motor6D conecta o chassi à roda — mexer em C0 move/rotaciona
--- sem interferir na física do corpo principal
--- ============================================================
-
--- Lado: FL/RL = esquerda, FR/RR = direita
-local tagLado = { FL = -1, RL = -1, FR = 1, RR = 1 }
-
--- Armazena dados originais de cada Motor6D e roda
-local motorOrigData = {}  -- { [motor] = { c0, c1, tag, wheelPart } }
-local wheelSizeOrig = {}  -- { [part]  = Size original }
-
-local function getWheelParts(vehicle)
-    if not vehicle then return {} end
-    local rodas = {}
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") then
-            local nameUpper = string.upper(part.Name)
-            local tag = tagDaRoda(nameUpper)
-            if tag then
-                local sz = part.Size
-                if sz.X > 0.15 and sz.Y > 0.15 and sz.Z > 0.15 then
-                    table.insert(rodas, { part = part, tag = tag })
-                end
-            end
-        end
-    end
-    return rodas
-end
-
--- Captura Motor6Ds ligados às rodas e seus C0/C1 originais
-local function capturarOriginais(vehicle)
-    motorOrigData = {}
-    wheelSizeOrig = {}
-    if not vehicle then return end
-
-    local wheelInfos = getWheelParts(vehicle)
-    -- índice rápido de peças de roda
-    local wheelSet = {}
-    for _, wi in ipairs(wheelInfos) do
-        wheelSet[wi.part] = wi.tag
-        wheelSizeOrig[wi.part] = wi.part.Size
-    end
-
-    -- Percorre todos os Motor6D do veículo
-    for _, obj in ipairs(vehicle:GetDescendants()) do
-        if obj:IsA("Motor6D") then
-            local wp = nil
-            local tag = nil
-            -- Part1 costuma ser a roda
-            if obj.Part1 and wheelSet[obj.Part1] then
-                wp  = obj.Part1
-                tag = wheelSet[obj.Part1]
-            elseif obj.Part0 and wheelSet[obj.Part0] then
-                wp  = obj.Part0
-                tag = wheelSet[obj.Part0]
-            end
-            if wp and tag then
-                motorOrigData[obj] = {
-                    c0       = obj.C0,
-                    c1       = obj.C1,
-                    tag      = tag,
-                    lado     = tagLado[tag] or 1,
-                    wheelPart = wp,
-                }
-            end
-        end
-    end
-end
-
-local function aplicarRodas(vehicle, wheelSize, spacer, camber)
-    if not vehicle then return end
-
-    -- 1) Tamanho das rodas via Size (só visual, não afeta física de constraints)
-    for _, wi in ipairs(getWheelParts(vehicle)) do
-        local orig = wheelSizeOrig[wi.part]
-        if orig then
-            pcall(function()
-                wi.part.Size = orig * wheelSize
-            end)
-        end
-    end
-
-    -- 2) Espaçador e Camber via Motor6D.C0
-    for motor, data in pairs(motorOrigData) do
-        if motor and motor.Parent then
-            local lado      = data.lado
-            -- Offset lateral (espaçador): move a roda para fora do chassi
-            local spacerVec = Vector3.new(lado * spacer, 0, 0)
-            -- Camber: rotação no eixo Z local, espelhada por lado
-            local camberRad = math.rad(camber) * lado
-            local camberRot = CFrame.Angles(0, 0, camberRad)
-
-            pcall(function()
-                motor.C0 = data.c0
-                    * CFrame.new(spacerVec)
-                    * camberRot
-            end)
-        end
-    end
-end
-
-local function applyWheelSize(v)
-    currentWheelSize = v
-    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
-end
-
-local function applySpacer(v)
-    currentSpacer = v
-    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
-end
-
-local function applyCamber(v)
-    currentCamber = v
-    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
-end
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -435,20 +338,6 @@ UserInputService.InputChanged:Connect(function(input)
             startPos.Y.Scale, startPos.Y.Offset + delta.Y
         )
     end
-end)
-
-openButton.MouseEnter:Connect(function()
-    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        TextColor3 = Color3.fromRGB(0, 0, 0)
-    }):Play()
-end)
-
-openButton.MouseLeave:Connect(function()
-    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = Color3.fromRGB(18, 18, 20),
-        TextColor3 = Color3.fromRGB(255, 255, 255)
-    }):Play()
 end)
 
 openButton.MouseButton1Click:Connect(function()
@@ -729,70 +618,6 @@ createSlider(wheelSection, {
         applyTireGrip(getVehicle(), v)
     end
 })
-
--- ============================================================
--- SEÇÃO: RODAS AVANÇADO (Tamanho, Espaçador, Camber)
--- ============================================================
-local wheelAdvSection = createSection("Rodas Avançado")
-
-createSlider(wheelAdvSection, {
-    Title = "Tamanho das Rodas",
-    Min = 0.5,
-    Max = 3.0,
-    Step = 0.05,
-    Default = 1.0,
-    Format = "%.2fx",
-    Changed = function(v)
-        applyWheelSize(v)
-    end
-})
-
-createButton(wheelAdvSection, "Resetar Tamanho", function()
-    applyWheelSize(1.0)
-end)
-
-createSlider(wheelAdvSection, {
-    Title = "Espaçador (Largura de Via)",
-    Min = 0,
-    Max = 2.0,
-    Step = 0.05,
-    Default = 0,
-    Format = "%.2f studs",
-    Changed = function(v)
-        applySpacer(v)
-    end
-})
-
-createSlider(wheelAdvSection, {
-    Title = "Camber (Inclinação)",
-    Min = -15,
-    Max = 15,
-    Step = 0.5,
-    Default = 0,
-    Format = "%.1f°",
-    Changed = function(v)
-        applyCamber(v)
-    end
-})
-
-createButton(wheelAdvSection, "Resetar Rodas", function()
-    currentWheelSize = 1.0
-    currentSpacer    = 0
-    currentCamber    = 0
-    local vehicle = getVehicle()
-    if vehicle then
-        -- Restaura tamanhos originais
-        for part, origSize in pairs(wheelSizeOrig) do
-            pcall(function() part.Size = origSize end)
-        end
-        -- Restaura Motor6D C0 originais
-        for motor, data in pairs(motorOrigData) do
-            if motor and motor.Parent then
-                pcall(function() motor.C0 = data.c0 end)
-            end
-        end
-    end
-end)
 
 -- ============================================================
 -- NOVA SEÇÃO: TRACKER DE JOGADORES
@@ -1142,15 +967,120 @@ createButton(trackerSection, "Parar Rastreamento", function()
 end)
 
 -- ============================================================
+-- SEÇÃO: AUTOFARM
+-- ============================================================
+local autoFarmAtivo = false
+local autoFarmDir   = 1
+local autoFarmConn  = nil
+local AUTO_ALTURA   = 300
+local AUTO_SPEED    = 200
+
+local autoFarmSection = createSection("AutoFarm")
+local autoFarmBtn = createButton(autoFarmSection, "▶ Ativar AutoFarm", function() end)
+
+local function pararAutoFarm()
+    autoFarmAtivo = false
+    if autoFarmConn then autoFarmConn:Disconnect(); autoFarmConn = nil end
+    autoFarmBtn.Text = "▶ Ativar AutoFarm"
+    autoFarmBtn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+    autoFarmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function iniciarAutoFarm()
+    local vehicle = getVehicle()
+    if not vehicle then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "AutoFarm",
+                Text = "Entre em um VehicleSeat primeiro",
+                Duration = 3
+            })
+        end)
+        return
+    end
+    autoFarmAtivo = true
+    autoFarmDir   = 1
+    autoFarmBtn.Text = "⏹ Parar AutoFarm"
+    TweenService:Create(autoFarmBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    }):Play()
+
+    autoFarmConn = RunService.Stepped:Connect(function()
+        if not autoFarmAtivo then return end
+        local v2 = getVehicle()
+        local seat = v2 and getVehicleSeat(v2)
+        if not seat then pararAutoFarm(); return end
+
+        local pos = seat.Position
+        -- Sobe até AUTO_ALTURA, depois vai e volta no eixo X
+        if pos.Y < AUTO_ALTURA - 5 then
+            seat.AssemblyLinearVelocity = Vector3.new(0, AUTO_SPEED, 0)
+        else
+            seat.AssemblyLinearVelocity = Vector3.new(AUTO_SPEED * autoFarmDir, 0, 0)
+            seat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            -- Inverte direção a cada 300 studs de deslocamento
+            if math.abs(pos.X) > 300 then
+                autoFarmDir = -autoFarmDir
+            end
+        end
+    end)
+end
+
+autoFarmBtn.MouseButton1Click:Connect(function()
+    if autoFarmAtivo then
+        pararAutoFarm()
+    else
+        iniciarAutoFarm()
+    end
+end)
+
+-- ============================================================
 -- PAINEL DE CONFIGURAÇÕES (filho do main, sobrepõe o conteúdo)
 -- ============================================================
+
+-- Helper: salva tema em StringValue no PlayerGui
+local function salvarTema()
+    local HttpService = game:GetService("HttpService")
+    local function c(col)
+        return {math.floor(col.R*255), math.floor(col.G*255), math.floor(col.B*255)}
+    end
+    local json = HttpService:JSONEncode({
+        p = c(tema.primaria),
+        s = c(tema.secundaria),
+        t = c(tema.terciaria),
+        q = c(tema.quaternaria),
+    })
+    local sv = playerGui:FindFirstChild("__ComitHubTema")
+    if not sv then
+        sv = Instance.new("StringValue")
+        sv.Name = "__ComitHubTema"
+        sv.Parent = playerGui
+    end
+    sv.Value = json
+end
+
+-- Aplica o tema em todos os elementos da UI
+local allSliderKnobs = {}   -- registrados pelos sliders
+local allSliderFills = {}
+local function aplicarTema()
+    -- Primária: fundo do main, settingsPanel, openButton, botão fechar
+    main.BackgroundColor3           = tema.primaria
+    openButton.BackgroundColor3     = tema.primaria
+    -- Terciária: textos
+    openButton.TextColor3           = tema.terciaria
+    title.TextColor3                = tema.terciaria
+    -- Quaternária: knobs e fills de sliders
+    for _, k in ipairs(allSliderKnobs) do pcall(function() k.BackgroundColor3 = tema.quaternaria end) end
+    for _, f in ipairs(allSliderFills) do pcall(function() f.BackgroundColor3 = tema.quaternaria end) end
+end
 
 local settingsPanel = Instance.new("Frame")
 settingsPanel.Name = "SettingsPanel"
 settingsPanel.Parent = main
 settingsPanel.Size = UDim2.new(1, 0, 1, 0)
 settingsPanel.Position = UDim2.new(0, 0, 0, 0)
-settingsPanel.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
+settingsPanel.BackgroundColor3 = tema.primaria
 settingsPanel.BorderSizePixel = 0
 settingsPanel.Visible = false
 settingsPanel.ZIndex = 10
@@ -1165,7 +1095,7 @@ settingsPanelStroke.Thickness = 1.4
 settingsPanelStroke.Color = Color3.fromRGB(80, 80, 86)
 settingsPanelStroke.Transparency = 0.35
 
--- Topbar do painel de configurações
+-- Topbar do painel
 local sTopBar = Instance.new("Frame")
 sTopBar.Parent = settingsPanel
 sTopBar.Size = UDim2.new(1, 0, 0, 42)
@@ -1205,109 +1135,244 @@ sCloseBtn.MouseButton1Click:Connect(function()
     settingsPanel.Visible = false
 end)
 
--- Linha separadora
-local sSep = Instance.new("Frame")
-sSep.Parent = settingsPanel
-sSep.Position = UDim2.new(0, 14, 0, 42)
-sSep.Size = UDim2.new(1, -28, 0, 1)
-sSep.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-sSep.BorderSizePixel = 0
-sSep.ZIndex = 11
+-- ScrollingFrame dentro do painel de configurações
+local sScroll = Instance.new("ScrollingFrame")
+sScroll.Parent = settingsPanel
+sScroll.Position = UDim2.new(0, 0, 0, 48)
+sScroll.Size = UDim2.new(1, 0, 1, -48)
+sScroll.BackgroundTransparency = 1
+sScroll.BorderSizePixel = 0
+sScroll.ScrollBarThickness = 4
+sScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+sScroll.CanvasSize = UDim2.new()
+sScroll.ZIndex = 11
 
--- Área do toggle
-local sRow = Instance.new("Frame")
-sRow.Parent = settingsPanel
-sRow.Position = UDim2.new(0, 14, 0, 56)
-sRow.Size = UDim2.new(1, -28, 0, 60)
-sRow.BackgroundTransparency = 1
-sRow.ZIndex = 11
+local sScrollPad = Instance.new("UIPadding")
+sScrollPad.Parent = sScroll
+sScrollPad.PaddingTop  = UDim.new(0, 8)
+sScrollPad.PaddingLeft = UDim.new(0, 10)
+sScrollPad.PaddingRight= UDim.new(0, 10)
+sScrollPad.PaddingBottom = UDim.new(0, 8)
 
-local sRowLabel = Instance.new("TextLabel")
-sRowLabel.Parent = sRow
-sRowLabel.BackgroundTransparency = 1
-sRowLabel.Position = UDim2.new(0, 0, 0, 0)
-sRowLabel.Size = UDim2.new(1, -60, 0, 22)
-sRowLabel.Font = Enum.Font.GothamBold
-sRowLabel.TextSize = 13
-sRowLabel.TextXAlignment = Enum.TextXAlignment.Left
-sRowLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-sRowLabel.Text = "Compartilhar Dados"
-sRowLabel.ZIndex = 11
+local sScrollList = Instance.new("UIListLayout")
+sScrollList.Parent = sScroll
+sScrollList.Padding = UDim.new(0, 10)
+sScrollList.SortOrder = Enum.SortOrder.LayoutOrder
 
-local sRowDesc = Instance.new("TextLabel")
-sRowDesc.Parent = sRow
-sRowDesc.BackgroundTransparency = 1
-sRowDesc.Position = UDim2.new(0, 0, 0, 24)
-sRowDesc.Size = UDim2.new(1, -60, 0, 34)
-sRowDesc.Font = Enum.Font.Gotham
-sRowDesc.TextSize = 11
-sRowDesc.TextXAlignment = Enum.TextXAlignment.Left
-sRowDesc.TextWrapped = true
-sRowDesc.TextColor3 = Color3.fromRGB(130, 130, 135)
-sRowDesc.Text = "Salva e reaplica suspensão, velocidade, frenagem e grip ao entrar em um carro"
-sRowDesc.ZIndex = 11
+-- ---- Toggle: Compartilhar Dados ----
+local function criarRowToggle(parent, labelTxt, descTxt, zBase, defaultOn, onChange)
+    local row = Instance.new("Frame")
+    row.Parent = parent
+    row.Size = UDim2.new(1, 0, 0, 60)
+    row.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
+    row.BorderSizePixel = 0
+    row.ZIndex = zBase
 
--- Toggle switch
-local toggleBg = Instance.new("Frame")
-toggleBg.Parent = sRow
-toggleBg.AnchorPoint = Vector2.new(1, 0)
-toggleBg.Position = UDim2.new(1, 0, 0, 0)
-toggleBg.Size = UDim2.new(0, 46, 0, 24)
-toggleBg.BackgroundColor3 = Color3.fromRGB(0, 200, 100) -- já começa verde (ativo)
-toggleBg.BorderSizePixel = 0
-toggleBg.ZIndex = 12
+    local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0,10); rc.Parent = row
+    local rp = Instance.new("UIPadding"); rp.PaddingLeft=UDim.new(0,10); rp.PaddingRight=UDim.new(0,10); rp.PaddingTop=UDim.new(0,8); rp.Parent = row
 
-local toggleBgCorner = Instance.new("UICorner")
-toggleBgCorner.CornerRadius = UDim.new(1, 0)
-toggleBgCorner.Parent = toggleBg
+    local lbl = Instance.new("TextLabel"); lbl.Parent = row
+    lbl.BackgroundTransparency = 1; lbl.Position = UDim2.new(0,0,0,0)
+    lbl.Size = UDim2.new(1,-56,0,22); lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.fromRGB(255,255,255); lbl.Text = labelTxt; lbl.ZIndex = zBase+1
 
-local toggleKnob = Instance.new("Frame")
-toggleKnob.Parent = toggleBg
-toggleKnob.AnchorPoint = Vector2.new(0, 0.5)
-toggleKnob.Position = UDim2.new(0, 25, 0.5, 0) -- já começa na posição ativa
-toggleKnob.Size = UDim2.new(0, 18, 0, 18)
-toggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-toggleKnob.BorderSizePixel = 0
-toggleKnob.ZIndex = 13
+    local desc = Instance.new("TextLabel"); desc.Parent = row
+    desc.BackgroundTransparency = 1; desc.Position = UDim2.new(0,0,0,24)
+    desc.Size = UDim2.new(1,-56,0,28); desc.Font = Enum.Font.Gotham
+    desc.TextSize = 11; desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextWrapped = true; desc.TextColor3 = Color3.fromRGB(130,130,135)
+    desc.Text = descTxt; desc.ZIndex = zBase+1
 
-local toggleKnobCorner = Instance.new("UICorner")
-toggleKnobCorner.CornerRadius = UDim.new(1, 0)
-toggleKnobCorner.Parent = toggleKnob
+    local tbg = Instance.new("Frame"); tbg.Parent = row
+    tbg.AnchorPoint = Vector2.new(1,0); tbg.Position = UDim2.new(1,0,0,0)
+    tbg.Size = UDim2.new(0,46,0,24)
+    tbg.BackgroundColor3 = defaultOn and Color3.fromRGB(0,200,100) or Color3.fromRGB(55,55,60)
+    tbg.BorderSizePixel = 0; tbg.ZIndex = zBase+2
+    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(1,0); tbc.Parent = tbg
 
-local toggleButton = Instance.new("TextButton")
-toggleButton.Parent = toggleBg
-toggleButton.Size = UDim2.new(1, 0, 1, 0)
-toggleButton.BackgroundTransparency = 1
-toggleButton.Text = ""
-toggleButton.ZIndex = 14
+    local tkn = Instance.new("Frame"); tkn.Parent = tbg
+    tkn.AnchorPoint = Vector2.new(0,0.5)
+    tkn.Position = defaultOn and UDim2.new(0,25,0.5,0) or UDim2.new(0,3,0.5,0)
+    tkn.Size = UDim2.new(0,18,0,18)
+    tkn.BackgroundColor3 = Color3.fromRGB(255,255,255); tkn.BorderSizePixel = 0; tkn.ZIndex = zBase+3
+    local tknc = Instance.new("UICorner"); tknc.CornerRadius = UDim.new(1,0); tknc.Parent = tkn
 
-local function setToggle(state)
-    compartilharDados = state
-    if state then
-        TweenService:Create(toggleBg, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(0, 200, 100)
-        }):Play()
-        TweenService:Create(toggleKnob, TweenInfo.new(0.2), {
-            Position = UDim2.new(0, 25, 0.5, 0),
-            BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        }):Play()
-        savedConfig.suspension = currentSuspension
-        savedConfig.speed      = currentSpeed
-        savedConfig.brake      = currentBrake
-        savedConfig.grip       = currentGrip
-    else
-        TweenService:Create(toggleBg, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(55, 55, 60)
-        }):Play()
-        TweenService:Create(toggleKnob, TweenInfo.new(0.2), {
-            Position = UDim2.new(0, 3, 0.5, 0),
-            BackgroundColor3 = Color3.fromRGB(160, 160, 165)
-        }):Play()
-    end
+    local state = defaultOn
+    local tbtn = Instance.new("TextButton"); tbtn.Parent = tbg
+    tbtn.Size = UDim2.new(1,0,1,0); tbtn.BackgroundTransparency = 1; tbtn.Text = ""; tbtn.ZIndex = zBase+4
+    tbtn.MouseButton1Click:Connect(function()
+        state = not state
+        if state then
+            TweenService:Create(tbg, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(0,200,100)}):Play()
+            TweenService:Create(tkn, TweenInfo.new(0.2), {Position=UDim2.new(0,25,0.5,0)}):Play()
+        else
+            TweenService:Create(tbg, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(55,55,60)}):Play()
+            TweenService:Create(tkn, TweenInfo.new(0.2), {Position=UDim2.new(0,3,0.5,0)}):Play()
+        end
+        if onChange then onChange(state) end
+    end)
+    return row
 end
 
-toggleButton.MouseButton1Click:Connect(function()
-    setToggle(not compartilharDados)
+criarRowToggle(sScroll, "Compartilhar Dados",
+    "Reaplica suspensão, velocidade, frenagem e grip ao entrar em um carro",
+    11, true, function(state)
+        compartilharDados = state
+        if state then
+            savedConfig.suspension = currentSuspension
+            savedConfig.speed      = currentSpeed
+            savedConfig.brake      = currentBrake
+            savedConfig.grip       = currentGrip
+        end
+    end
+)
+
+-- ---- Paleta de Cores ----
+local corNomes = {
+    { key = "primaria",    label = "Cor Primária",    desc = "Fundo do hub e botão Abrir" },
+    { key = "secundaria",  label = "Cor Secundária",  desc = "Hover do botão Abrir" },
+    { key = "terciaria",   label = "Cor Terciária",   desc = "Textos do hub" },
+    { key = "quaternaria", label = "Cor Quaternária", desc = "Sliders (knob e fill)" },
+}
+
+local function criarSliderCor(parent, titulo, getVal, setVal, zBase)
+    local holder = Instance.new("Frame")
+    holder.Parent = parent
+    holder.Size = UDim2.new(1, 0, 0, 26)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = zBase
+
+    local lbl = Instance.new("TextLabel"); lbl.Parent = holder
+    lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(0, 24, 1, 0)
+    lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
+    lbl.TextColor3 = Color3.fromRGB(180,180,185); lbl.Text = titulo; lbl.ZIndex = zBase+1
+
+    local valLbl = Instance.new("TextLabel"); valLbl.Parent = holder
+    valLbl.BackgroundTransparency = 1; valLbl.Size = UDim2.new(0,28,1,0)
+    valLbl.Position = UDim2.new(1,-28,0,0)
+    valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 11
+    valLbl.TextColor3 = Color3.fromRGB(255,255,255); valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.ZIndex = zBase+1
+
+    local sFrame = Instance.new("Frame"); sFrame.Parent = holder
+    sFrame.Position = UDim2.new(0,28,0.5,-3); sFrame.Size = UDim2.new(1,-60,0,6)
+    sFrame.BackgroundColor3 = Color3.fromRGB(45,45,50); sFrame.BorderSizePixel = 0; sFrame.ZIndex = zBase+1
+    local sfc = Instance.new("UICorner"); sfc.CornerRadius = UDim.new(1,0); sfc.Parent = sFrame
+
+    local fill = Instance.new("Frame"); fill.Parent = sFrame
+    fill.BackgroundColor3 = tema.quaternaria; fill.BorderSizePixel = 0
+    fill.ZIndex = zBase+2
+    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1,0); fc.Parent = fill
+    table.insert(allSliderFills, fill)
+
+    local knob = Instance.new("Frame"); knob.Parent = sFrame
+    knob.AnchorPoint = Vector2.new(0.5,0.5); knob.Size = UDim2.new(0,14,0,14)
+    knob.BackgroundColor3 = tema.quaternaria; knob.BorderSizePixel = 0; knob.ZIndex = zBase+3
+    local kc = Instance.new("UICorner"); kc.CornerRadius = UDim.new(1,0); kc.Parent = knob
+    table.insert(allSliderKnobs, knob)
+
+    local cur = getVal()
+    local function refresh()
+        local pos = cur / 255
+        fill.Size = UDim2.new(pos,0,1,0)
+        knob.Position = UDim2.new(pos,0,0.5,0)
+        valLbl.Text = tostring(math.floor(cur))
+    end
+    refresh()
+
+    local drag = false
+    sFrame.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if drag and inp.UserInputType == Enum.UserInputType.MouseMovement then
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh()
+        end
+    end)
+end
+
+for _, info in ipairs(corNomes) do
+    local card = Instance.new("Frame")
+    card.Parent = sScroll
+    card.Size = UDim2.new(1, 0, 0, 130)
+    card.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
+    card.BorderSizePixel = 0
+    card.ZIndex = 11
+
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0,10); cc.Parent = card
+    local cp = Instance.new("UIPadding"); cp.PaddingLeft=UDim.new(0,10); cp.PaddingRight=UDim.new(0,10); cp.PaddingTop=UDim.new(0,8); cp.PaddingBottom=UDim.new(0,8); cp.Parent = card
+    local cl = Instance.new("UIListLayout"); cl.Parent = card; cl.Padding = UDim.new(0,6); cl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local headerLbl = Instance.new("TextLabel"); headerLbl.Parent = card
+    headerLbl.BackgroundTransparency = 1; headerLbl.Size = UDim2.new(1,0,0,18)
+    headerLbl.Font = Enum.Font.GothamBold; headerLbl.TextSize = 12
+    headerLbl.TextXAlignment = Enum.TextXAlignment.Left
+    headerLbl.TextColor3 = Color3.fromRGB(255,255,255); headerLbl.Text = info.label; headerLbl.ZIndex = 12
+
+    local descLbl = Instance.new("TextLabel"); descLbl.Parent = card
+    descLbl.BackgroundTransparency = 1; descLbl.Size = UDim2.new(1,0,0,14)
+    descLbl.Font = Enum.Font.Gotham; descLbl.TextSize = 10
+    descLbl.TextXAlignment = Enum.TextXAlignment.Left
+    descLbl.TextColor3 = Color3.fromRGB(110,110,115); descLbl.Text = info.desc; descLbl.ZIndex = 12
+
+    -- Preview da cor
+    local previewRow = Instance.new("Frame"); previewRow.Parent = card
+    previewRow.Size = UDim2.new(1,0,0,18); previewRow.BackgroundTransparency = 1; previewRow.ZIndex = 12
+    local preview = Instance.new("Frame"); preview.Parent = previewRow
+    preview.Size = UDim2.new(1,0,1,0); preview.BorderSizePixel = 0; preview.ZIndex = 12
+    local prc = Instance.new("UICorner"); prc.CornerRadius = UDim.new(0,4); prc.Parent = preview
+
+    local function getR() return math.floor(tema[info.key].R*255) end
+    local function getG() return math.floor(tema[info.key].G*255) end
+    local function getB() return math.floor(tema[info.key].B*255) end
+
+    local function atualizarPreview()
+        preview.BackgroundColor3 = tema[info.key]
+        aplicarTema()
+        salvarTema()
+    end
+
+    criarSliderCor(card, "R", getR, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(v, math.floor(c.G*255), math.floor(c.B*255)); atualizarPreview()
+    end, 12)
+    criarSliderCor(card, "G", getG, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(math.floor(c.R*255), v, math.floor(c.B*255)); atualizarPreview()
+    end, 12)
+    criarSliderCor(card, "B", getB, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(math.floor(c.R*255), math.floor(c.G*255), v); atualizarPreview()
+    end, 12)
+
+    atualizarPreview()
+end
+
+-- Botão resetar tema
+local resetTemaBtn = Instance.new("TextButton")
+resetTemaBtn.Parent = sScroll
+resetTemaBtn.Size = UDim2.new(1,0,0,34)
+resetTemaBtn.BackgroundColor3 = Color3.fromRGB(32,32,36)
+resetTemaBtn.TextColor3 = Color3.fromRGB(255,255,255)
+resetTemaBtn.BorderSizePixel = 0
+resetTemaBtn.Font = Enum.Font.GothamBold
+resetTemaBtn.TextSize = 13
+resetTemaBtn.Text = "Resetar Tema"
+resetTemaBtn.ZIndex = 11
+local rtc = Instance.new("UICorner"); rtc.CornerRadius = UDim.new(0,10); rtc.Parent = resetTemaBtn
+resetTemaBtn.MouseButton1Click:Connect(function()
+    tema.primaria    = Color3.fromRGB(17,17,19)
+    tema.secundaria  = Color3.fromRGB(255,255,255)
+    tema.terciaria   = Color3.fromRGB(255,255,255)
+    tema.quaternaria = Color3.fromRGB(255,255,255)
+    aplicarTema()
+    salvarTema()
 end)
 
 -- Conecta o botão ⚙ para abrir/fechar o painel interno
@@ -1338,39 +1403,26 @@ local function reaplicarConfigs()
     applyTireGrip(vehicle, savedConfig.grip)
 end
 
--- Retorna true se há outro jogador em qualquer assento do veículo
 local function outroJogadorNoVeiculo(vehicle)
     if not vehicle then return false end
     for _, obj in ipairs(vehicle:GetDescendants()) do
         if (obj:IsA("Seat") or obj:IsA("VehicleSeat")) and obj.Occupant then
-            local ocupantePlayer = Players:GetPlayerFromCharacter(obj.Occupant.Parent)
-            if ocupantePlayer and ocupantePlayer ~= player then
-                return true
-            end
+            local op = Players:GetPlayerFromCharacter(obj.Occupant.Parent)
+            if op and op ~= player then return true end
         end
     end
     return false
 end
 
--- Monitora quando o próprio jogador entra num veículo para reaplica uma vez
 local function monitorarAssento(char)
     local humanoid = char:WaitForChild("Humanoid", 10)
     if not humanoid then return end
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
         if humanoid.SeatPart then
             task.wait(0.3)
-            -- Captura posições originais das rodas ao entrar no veículo
             local vehicle = getVehicle()
-            if vehicle then
-                capturarOriginais(vehicle)
-                -- Reaplica configs salvas
-                if compartilharDados then
-                    reaplicarConfigs()
-                end
-                -- Reaplica rodas se houver configuração
-                if currentWheelSize ~= 1 or currentSpacer ~= 0 or currentCamber ~= 0 then
-                    aplicarRodas(vehicle, currentWheelSize, currentSpacer, currentCamber)
-                end
+            if vehicle and compartilharDados then
+                reaplicarConfigs()
             end
         end
     end)
@@ -1382,36 +1434,23 @@ player.CharacterAdded:Connect(function(char)
     monitorarAssento(char)
 end)
 
+-- Aplica tema inicial
+aplicarTema()
+
 -- ============================================================
--- FIM DO PAINEL DE CONFIGURAÇÕES
+-- HOVER DO BOTÃO ABRIR com cor secundária
 -- ============================================================
-RunService.Stepped:Connect(function()
-    local vehicle = getVehicle()
-    if not vehicle then return end
-    local seat = getVehicleSeat(vehicle)
-    if not seat then return end
-
-    -- Multiplicador de Velocidade (W)
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
-    end
-
-    -- Multiplicador de Frenagem (S)
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
-    end
-
-    -- Compartilhar Dados: reaplicar continuamente enquanto outro jogador estiver no veículo
-    if compartilharDados and outroJogadorNoVeiculo(vehicle) then
-        applyLocalSuspension(savedConfig.suspension)
-        applyTireGrip(vehicle, savedConfig.grip)
-    end
-
-    -- Rodas Avançado: reaplicar tamanho, espaçador e camber continuamente
-    -- (garante visibilidade para todos os jogadores e resiste a resets do jogo)
-    if currentWheelSize ~= 1 or currentSpacer ~= 0 or currentCamber ~= 0 then
-        aplicarRodas(vehicle, currentWheelSize, currentSpacer, currentCamber)
-    end
+openButton.MouseEnter:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = tema.secundaria,
+        TextColor3 = Color3.fromRGB(0, 0, 0)
+    }):Play()
+end)
+openButton.MouseLeave:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = tema.primaria,
+        TextColor3 = tema.terciaria
+    }):Play()
 end)
 
 local footer = Instance.new("TextLabel")
@@ -1423,9 +1462,70 @@ footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
 footer.Text = "Feito por Rodrigues"
 
--- Tecla para fechar a GUI (RightBracket como no original)
+-- Tecla para fechar a GUI
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
+    end
+end)
+
+-- ============================================================
+-- RUNSERVICE: velocidade, frenagem, compartilhar dados, tracker time
+-- ============================================================
+
+-- Cor do time via Teams
+local function getTeamColor(targetPlayer)
+    local Teams = game:GetService("Teams")
+    if not Teams then return Color3.fromRGB(150,150,150) end
+    for _, team in ipairs(Teams:GetTeams()) do
+        if targetPlayer.Team == team then
+            return team.TeamColor.Color
+        end
+    end
+    return Color3.fromRGB(150, 150, 150) -- neutral = cinza
+end
+
+-- Atualiza cor da borda do label do tracker com a cor do time
+local function atualizarCorTime()
+    for pName, bb in pairs(trackerLabels) do
+        local p = Players:FindFirstChild(pName)
+        if p and bb and bb.Parent then
+            local bg = bb:FindFirstChildOfClass("Frame")
+            if bg then
+                local stroke = bg:FindFirstChildOfClass("UIStroke")
+                local nameLabel = bg:FindFirstChildOfClass("TextLabel")
+                local cor
+                if eAlvo(p) then
+                    cor = COR_ALVO
+                else
+                    cor = getTeamColor(p)
+                end
+                if stroke then stroke.Color = cor end
+                if nameLabel then nameLabel.TextColor3 = cor end
+            end
+        end
+    end
+end
+
+RunService.Stepped:Connect(function()
+    local vehicle = getVehicle()
+
+    -- Atualiza cores dos times no tracker a cada frame
+    atualizarCorTime()
+
+    if not vehicle then return end
+    local seat = getVehicleSeat(vehicle)
+    if not seat then return end
+
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
+    end
+
+    if compartilharDados and outroJogadorNoVeiculo(vehicle) then
+        applyLocalSuspension(savedConfig.suspension)
+        applyTireGrip(vehicle, savedConfig.grip)
     end
 end)
