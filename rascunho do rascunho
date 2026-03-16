@@ -617,13 +617,42 @@ createSlider(wheelSection, {
 
 -- Estado do tracker
 local trackerAtivo = false
-local trackerAlvoNome = nil  -- nil = rastrear todos; string = rastrear só um
+local trackerAlvoNome = nil  -- nil = rastrear todos; string = username real do alvo
 local trackerLabels = {}     -- { [playerName] = BillboardGui }
 local trackerConnection = nil
 
 -- Cor do highlight do alvo específico
 local COR_TODOS = Color3.fromRGB(255, 255, 255)
 local COR_ALVO  = Color3.fromRGB(0, 220, 120)
+
+-- Busca jogador por username OU DisplayName (parcial, case-insensitive)
+local function buscarJogador(texto)
+    if not texto or texto == "" then return nil end
+    local t = texto:lower()
+    local melhor = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            local username    = p.Name:lower()
+            local displayName = p.DisplayName:lower()
+            -- match exato primeiro
+            if username == t or displayName == t then
+                return p
+            end
+            -- match parcial como fallback
+            if not melhor then
+                if username:find(t, 1, true) or displayName:find(t, 1, true) then
+                    melhor = p
+                end
+            end
+        end
+    end
+    return melhor
+end
+
+-- Verifica se um player bate com o alvo salvo (username)
+local function eAlvo(p)
+    return trackerAlvoNome and p.Name:lower() == trackerAlvoNome:lower()
+end
 
 local function criarLabel(targetPlayer)
     -- Remove label anterior se existir
@@ -637,11 +666,24 @@ local function criarLabel(targetPlayer)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
+    local isAlvo = eAlvo(targetPlayer)
+    local cor = isAlvo and COR_ALVO or COR_TODOS
+
+    -- Monta texto: DisplayName + @username se forem diferentes
+    local displayName = targetPlayer.DisplayName
+    local username    = targetPlayer.Name
+    local labelText
+    if displayName:lower() ~= username:lower() then
+        labelText = "👤 " .. displayName .. " (@" .. username .. ")"
+    else
+        labelText = "👤 " .. username
+    end
+
     local bb = Instance.new("BillboardGui")
-    bb.Name = "TrackerLabel_" .. targetPlayer.Name
+    bb.Name = "TrackerLabel_" .. username
     bb.Adornee = hrp
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 140, 0, 36)
+    bb.Size = UDim2.new(0, 200, 0, 36)
     bb.StudsOffset = Vector3.new(0, 3.2, 0)
     bb.Parent = playerGui
 
@@ -659,7 +701,7 @@ local function criarLabel(targetPlayer)
     local bgStroke = Instance.new("UIStroke")
     bgStroke.Parent = bg
     bgStroke.Thickness = 1.2
-    bgStroke.Color = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
+    bgStroke.Color = cor
     bgStroke.Transparency = 0.1
 
     local nameLabel = Instance.new("TextLabel")
@@ -668,12 +710,12 @@ local function criarLabel(targetPlayer)
     nameLabel.Position = UDim2.new(0, 4, 0, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 13
-    nameLabel.TextColor3 = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
-    nameLabel.Text = "👤 " .. targetPlayer.Name
+    nameLabel.TextSize = 11
+    nameLabel.TextColor3 = cor
+    nameLabel.Text = labelText
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 
-    trackerLabels[targetPlayer.Name] = bb
+    trackerLabels[username] = bb
 end
 
 local function removerLabel(playerName)
@@ -692,20 +734,17 @@ end
 local function iniciarTracker()
     trackerAtivo = true
 
-    -- Criar labels para jogadores já na partida
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
             if deveRastrear then
                 if p.Character then
                     criarLabel(p)
                 end
-                -- Quando o personagem spawnar
                 p.CharacterAdded:Connect(function()
                     if trackerAtivo then
                         task.wait(0.5)
-                        local deveAinda = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
-                        if deveAinda then
+                        if (trackerAlvoNome == nil) or eAlvo(p) then
                             criarLabel(p)
                         end
                     end
@@ -717,10 +756,9 @@ local function iniciarTracker()
         end
     end
 
-    -- Novos jogadores que entram durante o tracker
     Players.PlayerAdded:Connect(function(p)
         if trackerAtivo and p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
             if deveRastrear then
                 p.CharacterAdded:Connect(function()
                     if trackerAtivo then
@@ -774,7 +812,7 @@ playerInput.BackgroundTransparency = 1
 playerInput.Font = Enum.Font.GothamMedium
 playerInput.TextSize = 13
 playerInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-playerInput.PlaceholderText = "Nome do jogador (deixe vazio = todos)"
+playerInput.PlaceholderText = "Username ou nome de exibição (vazio = todos)"
 playerInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
 playerInput.ClearTextOnFocus = false
 playerInput.Text = ""
@@ -800,21 +838,14 @@ createButton(trackerSection, "Rastrear Jogador Específico", function()
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Tracker",
-                Text = "Digite o nome do jogador no campo acima",
+                Text = "Digite o username ou nome de exibição acima",
                 Duration = 3
             })
         end)
         return
     end
 
-    -- Verifica se o jogador existe na partida
-    local encontrado = nil
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower() == nome:lower() then
-            encontrado = p
-            break
-        end
-    end
+    local encontrado = buscarJogador(nome)
 
     if not encontrado then
         pcall(function()
@@ -828,12 +859,12 @@ createButton(trackerSection, "Rastrear Jogador Específico", function()
     end
 
     pararTracker()
-    trackerAlvoNome = encontrado.Name
+    trackerAlvoNome = encontrado.Name  -- sempre salva o username real
     iniciarTracker()
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "Tracker Ativado",
-            Text = "Rastreando: " .. encontrado.Name,
+            Text = "Rastreando: " .. encontrado.DisplayName .. " (@" .. encontrado.Name .. ")",
             Duration = 3
         })
     end)
@@ -842,24 +873,17 @@ end)
 -- Botão: Teleportar para Frente do Jogador
 createButton(trackerSection, "Teleportar para Frente", function()
     local nome = playerInput.Text
-    local alvoNome = (nome ~= nil and nome ~= "") and nome or trackerAlvoNome
-
-    if not alvoNome then
-        pcall(function()
-            StarterGui:SetCore("SendNotification", {
-                Title = "Teleporte",
-                Text = "Digite o nome do jogador ou ative o tracker primeiro",
-                Duration = 3
-            })
-        end)
-        return
-    end
-
     local alvo = nil
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower() == alvoNome:lower() then
-            alvo = p
-            break
+
+    if nome and nome ~= "" then
+        alvo = buscarJogador(nome)
+    elseif trackerAlvoNome then
+        -- usa o alvo ativo do tracker
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Name:lower() == trackerAlvoNome:lower() then
+                alvo = p
+                break
+            end
         end
     end
 
@@ -867,7 +891,7 @@ createButton(trackerSection, "Teleportar para Frente", function()
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Teleporte",
-                Text = "Jogador não encontrado na partida",
+                Text = "Digite o username ou nome de exibição, ou ative o tracker primeiro",
                 Duration = 3
             })
         end)
@@ -894,14 +918,13 @@ createButton(trackerSection, "Teleportar para Frente", function()
     local myHRP = myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
 
-    -- Teleporta 3 studs na frente do alvo
     local offset = alvoHRP.CFrame.LookVector * 3
     myHRP.CFrame = CFrame.new(alvoHRP.Position + offset + Vector3.new(0, 0.5, 0))
 
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "Teleportado!",
-            Text = "Você foi teleportado para frente de " .. alvo.Name,
+            Text = "Você foi para frente de " .. alvo.DisplayName .. " (@" .. alvo.Name .. ")",
             Duration = 3
         })
     end)
