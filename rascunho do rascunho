@@ -31,9 +31,6 @@ local currentWheelSize   = 1    -- escala multiplicadora (1 = original)
 local currentSpacer      = 0    -- deslocamento lateral em studs
 local currentCamber      = 0    -- ângulo em graus
 
--- Posições/CFrames originais das rodas (para calcular offsets sem acumular)
-local originalWheelData  = {}   -- { [part] = { cframe, size } }
-
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
     FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
@@ -180,9 +177,18 @@ end
 
 -- ============================================================
 -- LÓGICA DE RODAS: Tamanho, Espaçador e Camber
+-- Abordagem: modifica Motor6D C0/C1 e Size das peças de roda
+-- Motor6D conecta o chassi à roda — mexer em C0 move/rotaciona
+-- sem interferir na física do corpo principal
 -- ============================================================
 
--- Retorna todas as peças de roda do veículo com sua tag (FL/FR/RL/RR)
+-- Lado: FL/RL = esquerda, FR/RR = direita
+local tagLado = { FL = -1, RL = -1, FR = 1, RR = 1 }
+
+-- Armazena dados originais de cada Motor6D e roda
+local motorOrigData = {}  -- { [motor] = { c0, c1, tag, wheelPart } }
+local wheelSizeOrig = {}  -- { [part]  = Size original }
+
 local function getWheelParts(vehicle)
     if not vehicle then return {} end
     local rodas = {}
@@ -191,9 +197,8 @@ local function getWheelParts(vehicle)
             local nameUpper = string.upper(part.Name)
             local tag = tagDaRoda(nameUpper)
             if tag then
-                -- Ignora peças muito pequenas (eixos, parafusos)
                 local sz = part.Size
-                if sz.X > 0.2 and sz.Y > 0.2 and sz.Z > 0.2 then
+                if sz.X > 0.15 and sz.Y > 0.15 and sz.Z > 0.15 then
                     table.insert(rodas, { part = part, tag = tag })
                 end
             end
@@ -202,52 +207,75 @@ local function getWheelParts(vehicle)
     return rodas
 end
 
--- Captura CFrame e Size originais das rodas (chama ao entrar no veículo)
+-- Captura Motor6Ds ligados às rodas e seus C0/C1 originais
 local function capturarOriginais(vehicle)
-    originalWheelData = {}
-    for _, info in ipairs(getWheelParts(vehicle)) do
-        originalWheelData[info.part] = {
-            cframe = info.part.CFrame,
-            size   = info.part.Size,
-        }
+    motorOrigData = {}
+    wheelSizeOrig = {}
+    if not vehicle then return end
+
+    local wheelInfos = getWheelParts(vehicle)
+    -- índice rápido de peças de roda
+    local wheelSet = {}
+    for _, wi in ipairs(wheelInfos) do
+        wheelSet[wi.part] = wi.tag
+        wheelSizeOrig[wi.part] = wi.part.Size
+    end
+
+    -- Percorre todos os Motor6D do veículo
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if obj:IsA("Motor6D") then
+            local wp = nil
+            local tag = nil
+            -- Part1 costuma ser a roda
+            if obj.Part1 and wheelSet[obj.Part1] then
+                wp  = obj.Part1
+                tag = wheelSet[obj.Part1]
+            elseif obj.Part0 and wheelSet[obj.Part0] then
+                wp  = obj.Part0
+                tag = wheelSet[obj.Part0]
+            end
+            if wp and tag then
+                motorOrigData[obj] = {
+                    c0       = obj.C0,
+                    c1       = obj.C1,
+                    tag      = tag,
+                    lado     = tagLado[tag] or 1,
+                    wheelPart = wp,
+                }
+            end
+        end
     end
 end
 
--- Lado da roda: FL/RL = esquerda (-X), FR/RR = direita (+X)
-local tagLado = { FL = -1, RL = -1, FR = 1, RR = 1 }
-
 local function aplicarRodas(vehicle, wheelSize, spacer, camber)
     if not vehicle then return end
-    for _, info in ipairs(getWheelParts(vehicle)) do
-        local part   = info.part
-        local tag    = info.tag
-        local orig   = originalWheelData[part]
-        if not orig then
-            -- Se ainda não capturou, captura agora
-            originalWheelData[part] = { cframe = part.CFrame, size = part.Size }
-            orig = originalWheelData[part]
+
+    -- 1) Tamanho das rodas via Size (só visual, não afeta física de constraints)
+    for _, wi in ipairs(getWheelParts(vehicle)) do
+        local orig = wheelSizeOrig[wi.part]
+        if orig then
+            pcall(function()
+                wi.part.Size = orig * wheelSize
+            end)
         end
+    end
 
-        -- Tamanho: escala uniforme a partir do tamanho original
-        pcall(function()
-            part.Size = orig.size * wheelSize
-        end)
+    -- 2) Espaçador e Camber via Motor6D.C0
+    for motor, data in pairs(motorOrigData) do
+        if motor and motor.Parent then
+            local lado      = data.lado
+            -- Offset lateral (espaçador): move a roda para fora do chassi
+            local spacerVec = Vector3.new(lado * spacer, 0, 0)
+            -- Camber: rotação no eixo Z local, espelhada por lado
+            local camberRad = math.rad(camber) * lado
+            local camberRot = CFrame.Angles(0, 0, camberRad)
 
-        -- Espaçador: desloca lateralmente a partir da posição original
-        local lado       = tagLado[tag] or 1
-        local offsetLat  = Vector3.new(lado * spacer, 0, 0)
-
-        -- Camber: rotação em Z (espelhada por lado)
-        -- FL/RL (esquerda): camber negativo inclina o topo para dentro → rotZ positivo
-        -- FR/RR (direita):  camber negativo inclina o topo para dentro → rotZ negativo
-        local camberRad  = math.rad(camber) * (-lado)
-        local camberRot  = CFrame.Angles(0, 0, camberRad)
-
-        pcall(function()
-            part.CFrame = CFrame.new(orig.cframe.Position + offsetLat)
-                * (orig.cframe - orig.cframe.Position)  -- rotação original
-                * camberRot
-        end)
+            pcall(function()
+                motor.C0 = data.c0
+                    * CFrame.new(spacerVec)
+                    * camberRot
+            end)
+        end
     end
 end
 
@@ -753,12 +781,14 @@ createButton(wheelAdvSection, "Resetar Rodas", function()
     currentCamber    = 0
     local vehicle = getVehicle()
     if vehicle then
-        -- Restaura tamanho e CFrame originais
-        for _, info in ipairs(getWheelParts(vehicle)) do
-            local orig = originalWheelData[info.part]
-            if orig then
-                pcall(function() info.part.Size   = orig.size   end)
-                pcall(function() info.part.CFrame = orig.cframe end)
+        -- Restaura tamanhos originais
+        for part, origSize in pairs(wheelSizeOrig) do
+            pcall(function() part.Size = origSize end)
+        end
+        -- Restaura Motor6D C0 originais
+        for motor, data in pairs(motorOrigData) do
+            if motor and motor.Parent then
+                pcall(function() motor.C0 = data.c0 end)
             end
         end
     end
