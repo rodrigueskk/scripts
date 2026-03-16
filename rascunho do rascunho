@@ -1095,6 +1095,297 @@ autoFarmBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
+-- SEÇÃO: REJOIN RÁPIDO
+-- ============================================================
+local rejoinSection = createSection("Servidor")
+
+createButton(rejoinSection, "Rejoin Rápido", function()
+    mostrarToast("Reconectando...")
+    task.wait(0.8)
+    local TeleportService = game:GetService("TeleportService")
+    pcall(function()
+        TeleportService:Teleport(game.PlaceId, player)
+    end)
+end)
+
+createButton(rejoinSection, "Copiar Link do Servidor", function()
+    local jobId = game.JobId
+    local placeId = game.PlaceId
+    local link = "roblox://experiences/start?placeId=" .. placeId .. "&gameInstanceId=" .. jobId
+    pcall(function() setclipboard(link) end)
+    mostrarToast("Link copiado!")
+end)
+
+-- ============================================================
+-- SEÇÃO: PINTURA DO CARRO (A-Chassis)
+-- Usa os RemoteEvents ChangeColorEvent dentro do modelo do carro
+-- Estrutura: Workspace.{username}sCar.GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
+-- ============================================================
+local paintSection = createSection("Pintura do Carro")
+
+-- Label info
+local paintInfo = Instance.new("TextLabel")
+paintInfo.Parent = paintSection
+paintInfo.BackgroundTransparency = 1
+paintInfo.Size = UDim2.new(1, 0, 0, 14)
+paintInfo.Font = Enum.Font.Gotham
+paintInfo.TextSize = 11
+paintInfo.TextXAlignment = Enum.TextXAlignment.Left
+paintInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
+paintInfo.Text = "Pinta o seu carro atual (precisa estar no carro)"
+
+-- Abas de pintura disponíveis no A-Chassis
+local paintTabs = {"Body", "Body2", "Body3", "Rims"}
+local paintTabSelecionada = "Body"
+
+-- Row de seleção de aba
+local tabRow = Instance.new("Frame")
+tabRow.Parent = paintSection
+tabRow.Size = UDim2.new(1, 0, 0, 28)
+tabRow.BackgroundTransparency = 1
+
+local tabRowList = Instance.new("UIListLayout")
+tabRowList.Parent = tabRow
+tabRowList.FillDirection = Enum.FillDirection.Horizontal
+tabRowList.Padding = UDim.new(0, 4)
+tabRowList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local tabBotoes = {}
+local function atualizarTabBotoes()
+    for tab, btn in pairs(tabBotoes) do
+        if tab == paintTabSelecionada then
+            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+            btn.TextColor3 = Color3.fromRGB(180, 180, 185)
+        end
+    end
+end
+
+for _, tabName in ipairs(paintTabs) do
+    local tbtn = Instance.new("TextButton")
+    tbtn.Parent = tabRow
+    tbtn.Size = UDim2.new(0, 60, 1, 0)
+    tbtn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+    tbtn.BorderSizePixel = 0
+    tbtn.Font = Enum.Font.GothamBold
+    tbtn.TextSize = 11
+    tbtn.TextColor3 = Color3.fromRGB(180, 180, 185)
+    tbtn.Text = tabName
+    tbtn.AutoButtonColor = false
+    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(0, 6); tbc.Parent = tbtn
+    tabBotoes[tabName] = tbtn
+    tbtn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
+        paintTabSelecionada = tabName
+        atualizarTabBotoes()
+    end)
+end
+atualizarTabBotoes()
+
+-- Color picker: sliders R, G, B
+local paintCorAtual = Color3.fromRGB(255, 0, 0)
+local paintR, paintG, paintB = 255, 0, 0
+
+-- Preview da cor
+local paintPreviewRow = Instance.new("Frame")
+paintPreviewRow.Parent = paintSection
+paintPreviewRow.Size = UDim2.new(1, 0, 0, 22)
+paintPreviewRow.BackgroundTransparency = 1
+
+local paintPreviewLabel = Instance.new("TextLabel")
+paintPreviewLabel.Parent = paintPreviewRow
+paintPreviewLabel.BackgroundTransparency = 1
+paintPreviewLabel.Size = UDim2.new(0, 60, 1, 0)
+paintPreviewLabel.Font = Enum.Font.GothamMedium
+paintPreviewLabel.TextSize = 11
+paintPreviewLabel.TextColor3 = Color3.fromRGB(160, 160, 165)
+paintPreviewLabel.Text = "Preview:"
+paintPreviewLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local paintPreview = Instance.new("Frame")
+paintPreview.Parent = paintPreviewRow
+paintPreview.Position = UDim2.new(0, 64, 0, 2)
+paintPreview.Size = UDim2.new(1, -64, 1, -4)
+paintPreview.BackgroundColor3 = paintCorAtual
+paintPreview.BorderSizePixel = 0
+local ppc = Instance.new("UICorner"); ppc.CornerRadius = UDim.new(0, 5); ppc.Parent = paintPreview
+
+local function atualizarPreviewPaint()
+    paintCorAtual = Color3.fromRGB(paintR, paintG, paintB)
+    paintPreview.BackgroundColor3 = paintCorAtual
+end
+
+-- Sliders R, G, B reutilizando criarSliderCor do painel de config
+local function criarSliderPaint(parent, titulo, getVal, setVal)
+    local holder = Instance.new("Frame")
+    holder.Parent = parent
+    holder.Size = UDim2.new(1, 0, 0, 24)
+    holder.BackgroundTransparency = 1
+
+    local lbl = Instance.new("TextLabel"); lbl.Parent = holder
+    lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(0, 16, 1, 0)
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 11
+    lbl.TextColor3 = Color3.fromRGB(180,180,185); lbl.Text = titulo
+
+    local valLbl = Instance.new("TextLabel"); valLbl.Parent = holder
+    valLbl.BackgroundTransparency = 1; valLbl.Size = UDim2.new(0, 28, 1, 0)
+    valLbl.Position = UDim2.new(1, -28, 0, 0)
+    valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 11
+    valLbl.TextColor3 = Color3.fromRGB(255,255,255)
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+    local sFrame = Instance.new("Frame"); sFrame.Parent = holder
+    sFrame.Position = UDim2.new(0, 20, 0.5, -3)
+    sFrame.Size = UDim2.new(1, -52, 0, 6)
+    sFrame.BackgroundColor3 = Color3.fromRGB(45,45,50); sFrame.BorderSizePixel = 0
+    local sfc = Instance.new("UICorner"); sfc.CornerRadius = UDim.new(1,0); sfc.Parent = sFrame
+
+    local fill = Instance.new("Frame"); fill.Parent = sFrame
+    fill.BackgroundColor3 = tema.quaternaria; fill.BorderSizePixel = 0
+    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1,0); fc.Parent = fill
+    table.insert(allSliderFills, fill)
+
+    local knob = Instance.new("Frame"); knob.Parent = sFrame
+    knob.AnchorPoint = Vector2.new(0.5,0.5); knob.Size = UDim2.new(0,14,0,14)
+    knob.BackgroundColor3 = tema.quaternaria; knob.BorderSizePixel = 0
+    local kc = Instance.new("UICorner"); kc.CornerRadius = UDim.new(1,0); kc.Parent = knob
+    table.insert(allSliderKnobs, knob)
+
+    local cur = getVal()
+    local function refresh()
+        local pos = cur / 255
+        fill.Size = UDim2.new(pos, 0, 1, 0)
+        knob.Position = UDim2.new(pos, 0, 0.5, 0)
+        valLbl.Text = tostring(cur)
+    end
+    refresh()
+
+    local drag = false
+    sFrame.InputBegan:Connect(function(inp)
+        if settingsPanelVisivel then return end
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh(); atualizarPreviewPaint()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if drag and inp.UserInputType == Enum.UserInputType.MouseMovement then
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh(); atualizarPreviewPaint()
+        end
+    end)
+end
+
+criarSliderPaint(paintSection, "R", function() return paintR end, function(v) paintR = v end)
+criarSliderPaint(paintSection, "G", function() return paintG end, function(v) paintG = v end)
+criarSliderPaint(paintSection, "B", function() return paintB end, function(v) paintB = v end)
+
+-- Aplica a cor via RemoteEvent ChangeColorEvent (visível para todos)
+createButton(paintSection, "Aplicar Cor", function()
+    local vehicle = getVehicle()
+    if not vehicle then
+        mostrarToast("Entre no seu carro primeiro!")
+        return
+    end
+
+    local cor = Color3.fromRGB(paintR, paintG, paintB)
+    local aplicado = false
+
+    -- Método 1: RemoteEvent ChangeColorEvent dentro do modelo do carro
+    -- Caminho: vehicle.GarageEntrance.OpenGarageScript.GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
+    pcall(function()
+        local garageEntrance = vehicle:FindFirstChild("GarageEntrance", true)
+        if garageEntrance then
+            local remotes = garageEntrance:FindFirstChild("OpenGarageScript", true)
+            if remotes then
+                local tabs = remotes:FindFirstChild("GarageMenus") and
+                             remotes.GarageMenus:FindFirstChild("Main") and
+                             remotes.GarageMenus.Main:FindFirstChild("Tabs")
+                if tabs then
+                    local tab = tabs:FindFirstChild(paintTabSelecionada)
+                    if tab then
+                        local re = tab:FindFirstChild("ChangeColorEvent")
+                        if re and re:IsA("RemoteEvent") then
+                            re:FireServer(cor)
+                            aplicado = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Método 2: busca direta pelo nome ChangeColorEvent em todo o veículo
+    if not aplicado then
+        pcall(function()
+            for _, obj in ipairs(vehicle:GetDescendants()) do
+                if obj:IsA("RemoteEvent") and obj.Name == "ChangeColorEvent" then
+                    -- Só aciona o da aba selecionada se o pai tiver o nome certo
+                    if obj.Parent and obj.Parent.Name == paintTabSelecionada then
+                        obj:FireServer(cor)
+                        aplicado = true
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Método 3: busca qualquer ChangeColorEvent no workspace inteiro
+    if not aplicado then
+        pcall(function()
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("RemoteEvent") and obj.Name == "ChangeColorEvent" then
+                    if obj.Parent and obj.Parent.Name == paintTabSelecionada then
+                        obj:FireServer(cor)
+                        aplicado = true
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Método 4: pintura direta nas partes do Body (visível localmente)
+    pcall(function()
+        local body = vehicle:FindFirstChild("Body")
+        if body then
+            for _, part in ipairs(body:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    local n = part.Name:upper()
+                    local deveColorir = false
+                    if paintTabSelecionada == "Body" and (n == "PAINT" or n == "BODY" or n == "CHASSIS") then
+                        deveColorir = true
+                    elseif paintTabSelecionada == "Body2" and n == "PAINT2" then
+                        deveColorir = true
+                    elseif paintTabSelecionada == "Body3" and n == "PAINT3" then
+                        deveColorir = true
+                    elseif paintTabSelecionada == "Rims" and (n == "RIM" or n == "RIMS" or n == "WHEEL") then
+                        deveColorir = true
+                    end
+                    if deveColorir then
+                        part.Color = cor
+                        aplicado = true
+                    end
+                end
+            end
+        end
+    end)
+
+    if aplicado then
+        mostrarToast("Cor aplicada: " .. paintTabSelecionada)
+    else
+        mostrarToast("Nao foi possivel aplicar a cor")
+    end
+end)
+
+-- ============================================================
 -- SEÇÃO: UTILITÁRIOS (Anti-Flip, ESP, FPS)
 -- ============================================================
 
@@ -1255,367 +1546,6 @@ fpsBtn.MouseButton1Click:Connect(function()
         }):Play()
     end
 end)
-
--- ============================================================
--- SEÇÃO: TRANCA DE VEÍCULOS
--- ============================================================
-local trancaSection = createSection("Tranca de Veículos")
-
--- Label de instrução
-local trancaInfo = Instance.new("TextLabel")
-trancaInfo.Parent = trancaSection
-trancaInfo.BackgroundTransparency = 1
-trancaInfo.Size = UDim2.new(1, 0, 0, 14)
-trancaInfo.Font = Enum.Font.Gotham
-trancaInfo.TextSize = 11
-trancaInfo.TextXAlignment = Enum.TextXAlignment.Left
-trancaInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
-trancaInfo.Text = "Selecione um veículo da lista abaixo:"
-
--- ScrollingFrame para a lista de veículos
-local trancaListHolder = Instance.new("Frame")
-trancaListHolder.Parent = trancaSection
-trancaListHolder.Size = UDim2.new(1, 0, 0, 120)
-trancaListHolder.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
-trancaListHolder.BorderSizePixel = 0
-local tlhc = Instance.new("UICorner"); tlhc.CornerRadius = UDim.new(0,8); tlhc.Parent = trancaListHolder
-local tlhs = Instance.new("UIStroke"); tlhs.Parent = trancaListHolder
-tlhs.Thickness = 1; tlhs.Color = Color3.fromRGB(60,60,65); tlhs.Transparency = 0.4
-
-local trancaScroll = Instance.new("ScrollingFrame")
-trancaScroll.Parent = trancaListHolder
-trancaScroll.Size = UDim2.new(1, 0, 1, 0)
-trancaScroll.BackgroundTransparency = 1
-trancaScroll.BorderSizePixel = 0
-trancaScroll.ScrollBarThickness = 3
-trancaScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-trancaScroll.CanvasSize = UDim2.new()
-
-local trancaScrollPad = Instance.new("UIPadding")
-trancaScrollPad.Parent = trancaScroll
-trancaScrollPad.PaddingTop    = UDim.new(0, 4)
-trancaScrollPad.PaddingBottom = UDim.new(0, 4)
-trancaScrollPad.PaddingLeft   = UDim.new(0, 6)
-trancaScrollPad.PaddingRight  = UDim.new(0, 6)
-
-local trancaList = Instance.new("UIListLayout")
-trancaList.Parent = trancaScroll
-trancaList.Padding = UDim.new(0, 3)
-trancaList.SortOrder = Enum.SortOrder.LayoutOrder
-
--- Veículo selecionado atualmente
-local veiculoSelecionado = nil
-local botoesVeiculo = {}   -- { [vehicle] = TextButton }
-
--- Encontra o valor Trancado dentro de vehicle.Body.Tranca.Trancado
-local function encontrarTrancado(vehicle)
-    local body = vehicle:FindFirstChild("Body")
-    if not body then return nil, "Body nao encontrado no veiculo" end
-    local tranca = body:FindFirstChild("Tranca")
-    if not tranca then return nil, "Tranca nao encontrada dentro do Body" end
-    local val = tranca:FindFirstChild("Trancado")
-    if not val then return nil, "Trancado nao encontrado dentro de Tranca" end
-    return val, nil
-end
-
--- Lê o estado atual do Trancado
-local function lerTrancado(val)
-    if not val then return nil end
-    if val:IsA("BoolValue") then return val.Value
-    elseif val:IsA("IntValue") or val:IsA("NumberValue") then return val.Value ~= 0
-    elseif val:IsA("StringValue") then return val.Value:lower() == "true"
-    end
-    return nil
-end
-
--- Encontra o ProximityPrompt dentro de Body.Tranca
-local function encontrarPrompt(vehicle)
-    local body = vehicle:FindFirstChild("Body")
-    if not body then return nil end
-    local tranca = body:FindFirstChild("Tranca")
-    if not tranca then return nil end
-    return tranca:FindFirstChildOfClass("ProximityPrompt")
-end
-
--- Desabilita script, aciona prompt, reabilita
-local function acionarTranca(vehicle)
-    local prompt = encontrarPrompt(vehicle)
-    if not prompt then
-        return false, "ProximityPrompt nao encontrado em Body.Tranca"
-    end
-
-    -- Desabilita o Script de validação dentro do ProximityPrompt
-    local scripts = {}
-    for _, obj in ipairs(prompt:GetChildren()) do
-        if obj:IsA("Script") or obj:IsA("LocalScript") then
-            pcall(function()
-                obj.Disabled = true
-                table.insert(scripts, obj)
-            end)
-            pcall(function()
-                obj.Enabled = false
-                table.insert(scripts, obj)
-            end)
-        end
-    end
-
-    task.wait(0.05)
-
-    -- Aciona o prompt
-    local ok = false
-    local err = ""
-
-    -- Método 1: fireproximityprompt (Synapse/KRNL nativo)
-    pcall(function()
-        fireproximityprompt(prompt)
-        ok = true
-    end)
-
-    -- Método 2: simulate hold
-    if not ok then
-        pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(0.1)
-            prompt:InputHoldEnd()
-            ok = true
-        end)
-    end
-
-    task.wait(0.15)
-
-    -- Reabilita scripts
-    for _, s in ipairs(scripts) do
-        pcall(function() s.Disabled = false end)
-        pcall(function() s.Enabled = true end)
-    end
-
-    return ok, ok and "Prompt acionado" or "Falha ao acionar prompt"
-end
-
--- Atualiza o visual do botão de um veículo na lista
-local function atualizarBotaoVeiculo(vehicle, btn)
-    local val, _ = encontrarTrancado(vehicle)
-    local trancado = lerTrancado(val)
-    local selecionado = veiculoSelecionado == vehicle
-
-    btn.BackgroundColor3 = selecionado and Color3.fromRGB(40, 60, 90) or Color3.fromRGB(26, 26, 30)
-
-    local status
-    if trancado == true then
-        status = " [TRANCADO]"
-    elseif trancado == false then
-        status = " [ABERTO]"
-    else
-        status = " [?]"
-    end
-
-    local nome = vehicle.Name
-    if #nome > 18 then nome = nome:sub(1,18) .. "..." end
-    btn.Text = nome .. status
-end
-
--- Popula a lista com os veículos encontrados no workspace
-local function popularListaVeiculos()
-    -- Limpa lista anterior
-    for _, b in pairs(botoesVeiculo) do pcall(function() b:Destroy() end) end
-    botoesVeiculo = {}
-    veiculoSelecionado = nil
-
-    local count = 0
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj:IsA("Model") then
-            local seat = obj:FindFirstChildWhichIsA("VehicleSeat", true)
-            if seat then
-                count = count + 1
-                local btn = Instance.new("TextButton")
-                btn.Parent = trancaScroll
-                btn.Size = UDim2.new(1, 0, 0, 28)
-                btn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
-                btn.BorderSizePixel = 0
-                btn.Font = Enum.Font.GothamMedium
-                btn.TextSize = 12
-                btn.TextColor3 = Color3.fromRGB(220, 220, 225)
-                btn.TextXAlignment = Enum.TextXAlignment.Left
-                btn.AutoButtonColor = false
-
-                local btnCorner = Instance.new("UICorner")
-                btnCorner.CornerRadius = UDim.new(0, 6)
-                btnCorner.Parent = btn
-
-                local btnPad = Instance.new("UIPadding")
-                btnPad.PaddingLeft = UDim.new(0, 8)
-                btnPad.Parent = btn
-
-                botoesVeiculo[obj] = btn
-                atualizarBotaoVeiculo(obj, btn)
-
-                btn.MouseButton1Click:Connect(function()
-                    veiculoSelecionado = obj
-                    -- Atualiza visual de todos os botões
-                    for v, b in pairs(botoesVeiculo) do
-                        if v.Parent then
-                            atualizarBotaoVeiculo(v, b)
-                        end
-                    end
-                end)
-            end
-        end
-    end
-
-    if count == 0 then
-        local empty = Instance.new("TextLabel")
-        empty.Parent = trancaScroll
-        empty.Size = UDim2.new(1, 0, 0, 28)
-        empty.BackgroundTransparency = 1
-        empty.Font = Enum.Font.Gotham
-        empty.TextSize = 11
-        empty.TextColor3 = Color3.fromRGB(100, 100, 105)
-        empty.Text = "Nenhum veículo encontrado"
-    end
-end
-
--- Botão atualizar lista
-createButton(trancaSection, "↻ Atualizar Lista", function()
-    popularListaVeiculos()
-    mostrarToast("Lista atualizada!")
-end)
-
--- Botões de ação
-local trancaAcaoHolder = Instance.new("Frame")
-trancaAcaoHolder.Parent = trancaSection
-trancaAcaoHolder.Size = UDim2.new(1, 0, 0, 34)
-trancaAcaoHolder.BackgroundTransparency = 1
-
-local trancaAcaoList = Instance.new("UIListLayout")
-trancaAcaoList.Parent = trancaAcaoHolder
-trancaAcaoList.FillDirection = Enum.FillDirection.Horizontal
-trancaAcaoList.Padding = UDim.new(0, 6)
-trancaAcaoList.SortOrder = Enum.SortOrder.LayoutOrder
-
-local function criarBotaoAcao(parent, texto, corFundo, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = parent
-    btn.Size = UDim2.new(0.5, -3, 1, 0)
-    btn.BackgroundColor3 = corFundo
-    btn.BorderSizePixel = 0
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Text = texto
-    btn.AutoButtonColor = false
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = btn
-    btn.MouseButton1Click:Connect(function()
-        if settingsPanelVisivel then return end
-        callback()
-    end)
-    return btn
-end
-
--- Label de log de resultado
-local trancaLogLabel = Instance.new("TextLabel")
-trancaLogLabel.Parent = trancaSection
-trancaLogLabel.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
-trancaLogLabel.BorderSizePixel = 0
-trancaLogLabel.Size = UDim2.new(1, 0, 0, 50)
-trancaLogLabel.Font = Enum.Font.Gotham
-trancaLogLabel.TextSize = 10
-trancaLogLabel.TextColor3 = Color3.fromRGB(160, 160, 165)
-trancaLogLabel.TextWrapped = true
-trancaLogLabel.TextXAlignment = Enum.TextXAlignment.Left
-trancaLogLabel.TextYAlignment = Enum.TextYAlignment.Top
-trancaLogLabel.Text = "Aguardando acao..."
-
-local tlc = Instance.new("UICorner"); tlc.CornerRadius = UDim.new(0,6); tlc.Parent = trancaLogLabel
-local tlp = Instance.new("UIPadding"); tlp.PaddingLeft = UDim.new(0,6); tlp.PaddingTop = UDim.new(0,4); tlp.Parent = trancaLogLabel
-
-local function setLog(msg, cor)
-    trancaLogLabel.Text = msg
-    trancaLogLabel.TextColor3 = cor or Color3.fromRGB(160,160,165)
-end
-
-criarBotaoAcao(trancaAcaoHolder, "TRANCAR", Color3.fromRGB(180, 40, 40), function()
-    if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        setLog("Erro: nenhum veiculo selecionado.", Color3.fromRGB(220,80,80))
-        return
-    end
-    local val, err = encontrarTrancado(veiculoSelecionado)
-    if not val then
-        setLog("Erro: " .. (err or "desconhecido"), Color3.fromRGB(220,80,80))
-        return
-    end
-    local estadoAtual = lerTrancado(val)
-    if estadoAtual == true then
-        setLog("Aviso: ja esta trancado (Trancado = true)", Color3.fromRGB(220,180,0))
-        return
-    end
-    setLog("Acionando tranca...", Color3.fromRGB(160,160,165))
-    local ok, msg = acionarTranca(veiculoSelecionado)
-    task.wait(0.3)
-    local estadoNovo = lerTrancado(val)
-    if estadoNovo == true then
-        setLog("SUCESSO: Trancado = true\n" .. msg, Color3.fromRGB(0,200,100))
-        mostrarToast("Veiculo trancado!")
-    else
-        setLog("FALHOU: estado nao mudou\n" .. msg .. "\nTrancado ainda = " .. tostring(estadoNovo), Color3.fromRGB(220,80,80))
-        mostrarToast("Nao foi possivel trancar")
-    end
-    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
-end)
-
-criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), function()
-    if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        setLog("Erro: nenhum veiculo selecionado.", Color3.fromRGB(220,80,80))
-        return
-    end
-    local val, err = encontrarTrancado(veiculoSelecionado)
-    if not val then
-        setLog("Erro: " .. (err or "desconhecido"), Color3.fromRGB(220,80,80))
-        return
-    end
-    local estadoAtual = lerTrancado(val)
-    if estadoAtual == false then
-        setLog("Aviso: ja esta destrancado (Trancado = false)", Color3.fromRGB(220,180,0))
-        return
-    end
-    setLog("Acionando destranca...", Color3.fromRGB(160,160,165))
-    local ok, msg = acionarTranca(veiculoSelecionado)
-    task.wait(0.3)
-    local estadoNovo = lerTrancado(val)
-    if estadoNovo == false then
-        setLog("SUCESSO: Trancado = false\n" .. msg, Color3.fromRGB(0,200,100))
-        mostrarToast("Veiculo destrancado!")
-    else
-        setLog("FALHOU: estado nao mudou\n" .. msg .. "\nTrancado ainda = " .. tostring(estadoNovo), Color3.fromRGB(220,80,80))
-        mostrarToast("Nao foi possivel destrancar")
-    end
-    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
-end)
-
--- Botão: listar RemoteEvents no console
-createButton(trancaSection, "Listar RemoteEvents (ver console)", function()
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    print("========== REMOTEEVENTS / REMOTEFUNCTIONS ==========")
-    local count = 0
-    local function scan(parent, path)
-        for _, obj in ipairs(parent:GetDescendants()) do
-            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("BindableEvent") then
-                count = count + 1
-                print("[" .. obj.ClassName .. "] " .. obj:GetFullName())
-            end
-        end
-    end
-    scan(ReplicatedStorage, "ReplicatedStorage")
-    -- Verifica também no workspace e ServerScriptService (alguns jogos colocam lá)
-    pcall(function() scan(game:GetService("Workspace"), "Workspace") end)
-    pcall(function() scan(game:GetService("Players"), "Players") end)
-    print("Total encontrado: " .. count)
-    print("====================================================")
-    mostrarToast("Veja o console do executor!")
-end)
-
--- Popula a lista ao carregar
-popularListaVeiculos()
-
 -- Helper: salva tema em StringValue no PlayerGui
 local function salvarTema()
     local HttpService = game:GetService("HttpService")
