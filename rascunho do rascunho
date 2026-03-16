@@ -54,7 +54,7 @@ if playerGui:FindFirstChild("ComitHubUI") then
     return
 end
 
--- Configurações Globais
+-- Configurações Globais (Originais)
 local alturaMin, alturaMax = 0.05, 8
 local velocityMult, velocityMult2 = 0.025, 0.150
 local currentSuspension = 2.5
@@ -449,7 +449,7 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA)
+-- Eventos de Abertura/Fechamento
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
