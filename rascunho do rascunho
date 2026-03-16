@@ -1410,17 +1410,20 @@ local function pararSeguidor()
     seguidorAtivo = false
     if seguidorConn then seguidorConn:Disconnect(); seguidorConn = nil end
 
-    -- Zera os inputs do VehicleSeat
+    -- Zera velocidade de todas as partes do carro
     if seguidorVehicle and seguidorVehicle.Parent then
-        local seat = getVehicleSeat(seguidorVehicle)
-        if seat then
-            pcall(function()
-                seat.ThrottleFloat = 0
-                seat.SteerFloat    = 0
-            end)
+        for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+            if p:IsA("BasePart") and not p.Anchored then
+                pcall(function()
+                    p.AssemblyLinearVelocity  = Vector3.zero
+                    p.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
         end
     end
 
+    seguidorStatus.Text = seguidorVehicle and ("Carro: " .. (seguidorVehicle.Name or "?")) or "Nenhum carro registrado"
+    seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
     seguidorBtn.Text = "Venha Ca: OFF"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
         BackgroundColor3 = Color3.fromRGB(32, 32, 36),
@@ -1446,122 +1449,103 @@ local function iniciarSeguidor()
         return
     end
 
-    -- Remove o limite de velocidade
-    pcall(function() seat.MaxSpeed = 9999 end)
-
-    -- 1) Liga a ignição via IgnitionEvent (equivale a apertar F)
-    pcall(function()
-        local ignEvent = seguidorVehicle:FindFirstChild("IgnitionEvent", true)
-        if ignEvent and ignEvent:IsA("RemoteEvent") then
-            ignEvent:FireServer(true)
-        end
-    end)
-
-    -- 2) Simula tecla F via UserInputService (LocalScript consegue)
-    pcall(function()
-        local uis = game:GetService("UserInputService")
-        local inputF = {
-            KeyCode = Enum.KeyCode.F,
-            UserInputType = Enum.UserInputType.Keyboard,
-        }
-        -- Força o evento de input da ignição nos LocalScripts do carro
-        for _, ls in ipairs(seguidorVehicle:GetDescendants()) do
-            if ls:IsA("LocalScript") and ls.Name:lower():find("ignit") then
-                pcall(function()
-                    ls:FindFirstChild("IgnitionEvent") -- só testa se existe
-                end)
-            end
-        end
-    end)
-
-    -- 3) Solta freio de mão: seta ThrottleFloat e SteerFloat imediatamente
-    -- O freio de mão no A-Chassis é controlado por uma variável local —
-    -- simular Espaço não é possível via RemoteEvent, mas setar ThrottleFloat > 0
-    -- enquanto o carro está parado solta o freio automaticamente no A-Chassis
-    task.spawn(function()
-        task.wait(0.3) -- aguarda ignição processar
-
-        -- Pulsa throttle para soltar o freio de mão
-        for i = 1, 5 do
-            pcall(function()
-                seat.ThrottleFloat = 1
-            end)
-            task.wait(0.1)
-        end
-    end)
-
     seguidorAtivo = true
     seguidorBtn.Text = "Venha Ca: ON"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
         BackgroundColor3 = Color3.fromRGB(0, 180, 80),
         TextColor3 = Color3.fromRGB(255, 255, 255)
     }):Play()
+
+    seguidorStatus.Text = "Iniciando..."
+    seguidorStatus.TextColor3 = Color3.fromRGB(255, 200, 0)
     mostrarToast("Venha Ca ativado!")
 
-    task.wait(0.8) -- aguarda ignição + freio soltarem
+    local DIST_PARAR  = 8    -- studs para parar
+    local VELOCIDADE  = 40   -- studs/s de deslocamento
+    local ROT_SPEED   = 6    -- velocidade de rotação
 
-    seguidorConn = RunService.Stepped:Connect(function()
+    seguidorConn = RunService.Stepped:Connect(function(_, dt)
         if not seguidorAtivo then return end
 
         if not seguidorVehicle or not seguidorVehicle.Parent then
-            pararSeguidor(); return
+            pararSeguidor()
+            seguidorStatus.Text = "Carro desapareceu"
+            seguidorStatus.TextColor3 = Color3.fromRGB(220, 80, 80)
+            return
         end
 
         local myChar = player.Character
-        if not myChar then return end
+        if not myChar then
+            seguidorStatus.Text = "Aguardando personagem..."
+            return
+        end
         local myHRP = myChar:FindFirstChild("HumanoidRootPart")
         if not myHRP then return end
-
-        local seat2 = getVehicleSeat(seguidorVehicle)
-        if not seat2 then return end
 
         -- Pausa se jogador estiver no carro
         local hum = myChar:FindFirstChildOfClass("Humanoid")
         if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(seguidorVehicle) then
-            pcall(function() seat2.ThrottleFloat = 0; seat2.SteerFloat = 0 end)
+            seguidorStatus.Text = "Pausado (voce esta no carro)"
+            seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
+            -- Zera movimentos
+            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+                if p:IsA("BasePart") and not p.Anchored then
+                    pcall(function() p.AssemblyLinearVelocity = Vector3.zero end)
+                end
+            end
             return
         end
 
-        local carCF    = seat2.CFrame
-        local carPos   = seat2.Position
+        local seat2 = getVehicleSeat(seguidorVehicle)
+        if not seat2 then return end
+
+        local carPos    = seat2.Position
         local playerPos = myHRP.Position
-
-        local toPlayer = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
-        local dist = toPlayer.Magnitude
-
-        local DIST_PARAR = 7
+        local toPlayer  = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
+        local dist      = toPlayer.Magnitude
 
         if dist < DIST_PARAR then
-            pcall(function()
-                seat2.ThrottleFloat = 0
-                seat2.SteerFloat    = 0
-            end)
+            -- Para o carro zerando velocidade em todas as partes
+            seguidorStatus.Text = "Aguardando... (" .. math.floor(dist) .. " studs)"
+            seguidorStatus.TextColor3 = Color3.fromRGB(0, 200, 100)
+            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+                if p:IsA("BasePart") and not p.Anchored then
+                    pcall(function()
+                        p.AssemblyLinearVelocity  = Vector3.zero
+                        p.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                end
+            end
             return
         end
 
-        local carForward = Vector3.new(carCF.LookVector.X, 0, carCF.LookVector.Z)
-        if carForward.Magnitude < 0.01 then return end
-        carForward = carForward.Unit
+        -- Direção horizontal até o jogador
+        local dirH = toPlayer.Unit
 
-        local carRight = Vector3.new(carCF.RightVector.X, 0, carCF.RightVector.Z)
-        if carRight.Magnitude < 0.01 then return end
-        carRight = carRight.Unit
+        -- Velocidade proporcional à distância (até o limite)
+        local speed = math.min(VELOCIDADE, dist * 3)
+        local vel   = dirH * speed
 
-        local dirToPlayer = toPlayer.Unit
+        -- Aplica velocidade em TODAS as BaseParts do veículo
+        seguidorStatus.Text = "Seguindo... (" .. math.floor(dist) .. " studs)"
+        seguidorStatus.TextColor3 = Color3.fromRGB(0, 180, 255)
 
-        local dotForward = carForward:Dot(dirToPlayer)
-        local dotRight   = carRight:Dot(dirToPlayer)
-
-        local throttle = math.clamp(dotForward * 2, -1, 1)
-        local steer    = math.clamp(dotRight * 2, -1, 1)
-
-        if dotForward < -0.3 then
-            steer = -steer
+        for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+            if p:IsA("BasePart") and not p.Anchored then
+                pcall(function()
+                    p.AssemblyLinearVelocity = Vector3.new(vel.X, p.AssemblyLinearVelocity.Y, vel.Z)
+                end)
+            end
         end
 
+        -- Rotaciona o assento (raiz do carro) suavemente para olhar para o jogador
         pcall(function()
-            seat2.ThrottleFloat = throttle
-            seat2.SteerFloat    = steer
+            local targetCF = CFrame.lookAt(seat2.Position, seat2.Position + dirH)
+            local newCF    = seat2.CFrame:Lerp(
+                CFrame.new(seat2.Position) * (targetCF - targetCF.Position),
+                math.min(ROT_SPEED * dt, 1)
+            )
+            seat2.CFrame = newCF
         end)
     end)
 end
