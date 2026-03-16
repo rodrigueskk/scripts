@@ -1328,61 +1328,68 @@ local function lerTrancado(val)
     return nil
 end
 
--- Tenta escrever no valor usando todas as técnicas disponíveis no executor
-local function escreverValor(val, estado)
-    local resultados = {}
+-- Encontra o ProximityPrompt dentro de Body.Tranca
+local function encontrarPrompt(vehicle)
+    local body = vehicle:FindFirstChild("Body")
+    if not body then return nil end
+    local tranca = body:FindFirstChild("Tranca")
+    if not tranca then return nil end
+    return tranca:FindFirstChildOfClass("ProximityPrompt")
+end
 
-    -- Técnica 1: atribuição direta simples
-    local ok1, err1 = pcall(function()
-        if val:IsA("BoolValue") then val.Value = estado
-        elseif val:IsA("IntValue") or val:IsA("NumberValue") then val.Value = estado and 1 or 0
-        elseif val:IsA("StringValue") then val.Value = tostring(estado)
+-- Desabilita script, aciona prompt, reabilita
+local function acionarTranca(vehicle)
+    local prompt = encontrarPrompt(vehicle)
+    if not prompt then
+        return false, "ProximityPrompt nao encontrado em Body.Tranca"
+    end
+
+    -- Desabilita o Script de validação dentro do ProximityPrompt
+    local scripts = {}
+    for _, obj in ipairs(prompt:GetChildren()) do
+        if obj:IsA("Script") or obj:IsA("LocalScript") then
+            pcall(function()
+                obj.Disabled = true
+                table.insert(scripts, obj)
+            end)
+            pcall(function()
+                obj.Enabled = false
+                table.insert(scripts, obj)
+            end)
         end
-    end)
-    table.insert(resultados, ok1 and "OK:direto" or ("FALHOU:direto(" .. tostring(err1) .. ")"))
-
-    -- Confirma se escreveu
-    local estadoApos = lerTrancado(val)
-    if estadoApos == estado then
-        return true, resultados
     end
 
-    -- Técnica 2: sethiddenproperty (Synapse X / KRNL)
-    local ok2, err2 = pcall(function()
-        sethiddenproperty(val, "Value", estado)
-    end)
-    table.insert(resultados, ok2 and "OK:sethidden" or ("FALHOU:sethidden(" .. tostring(err2) .. ")"))
+    task.wait(0.05)
 
-    estadoApos = lerTrancado(val)
-    if estadoApos == estado then
-        return true, resultados
+    -- Aciona o prompt
+    local ok = false
+    local err = ""
+
+    -- Método 1: fireproximityprompt (Synapse/KRNL nativo)
+    pcall(function()
+        fireproximityprompt(prompt)
+        ok = true
+    end)
+
+    -- Método 2: simulate hold
+    if not ok then
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.1)
+            prompt:InputHoldEnd()
+            ok = true
+        end)
     end
 
-    -- Técnica 3: rawset
-    local ok3, err3 = pcall(function()
-        rawset(val, "Value", estado)
-    end)
-    table.insert(resultados, ok3 and "OK:rawset" or ("FALHOU:rawset(" .. tostring(err3) .. ")"))
+    task.wait(0.15)
 
-    estadoApos = lerTrancado(val)
-    if estadoApos == estado then
-        return true, resultados
+    -- Reabilita scripts
+    for _, s in ipairs(scripts) do
+        pcall(function() s.Disabled = false end)
+        pcall(function() s.Enabled = true end)
     end
 
-    -- Técnica 4: setrawmetatable
-    local ok4, err4 = pcall(function()
-        local mt = getrawmetatable(val)
-        local oldIndex = mt.__newindex
-        setrawmetatable(val, setmetatable({}, {
-            __newindex = function(t, k, v) rawset(t, k, v) end
-        }))
-        val.Value = estado
-        setrawmetatable(val, mt)
-    end)
-    table.insert(resultados, ok4 and "OK:setrawmeta" or ("FALHOU:setrawmeta(" .. tostring(err4) .. ")"))
-
-    estadoApos = lerTrancado(val)
-    return estadoApos == estado, resultados
+    return ok, ok and "Prompt acionado" or "Falha ao acionar prompt"
 end
 
 -- Atualiza o visual do botão de um veículo na lista
@@ -1538,17 +1545,18 @@ criarBotaoAcao(trancaAcaoHolder, "TRANCAR", Color3.fromRGB(180, 40, 40), functio
     end
     local estadoAtual = lerTrancado(val)
     if estadoAtual == true then
-        setLog("Aviso: veiculo ja esta trancado. (Trancado = true)", Color3.fromRGB(220,180,0))
+        setLog("Aviso: ja esta trancado (Trancado = true)", Color3.fromRGB(220,180,0))
         return
     end
-    setLog("Tentando trancar...", Color3.fromRGB(160,160,165))
-    local ok, resultados = escreverValor(val, true)
-    local logTxt = table.concat(resultados, " | ")
-    if ok then
-        setLog("SUCESSO: Trancado = true\n" .. logTxt, Color3.fromRGB(0,200,100))
+    setLog("Acionando tranca...", Color3.fromRGB(160,160,165))
+    local ok, msg = acionarTranca(veiculoSelecionado)
+    task.wait(0.3)
+    local estadoNovo = lerTrancado(val)
+    if estadoNovo == true then
+        setLog("SUCESSO: Trancado = true\n" .. msg, Color3.fromRGB(0,200,100))
         mostrarToast("Veiculo trancado!")
     else
-        setLog("FALHOU: valor nao mudou\n" .. logTxt, Color3.fromRGB(220,80,80))
+        setLog("FALHOU: estado nao mudou\n" .. msg .. "\nTrancado ainda = " .. tostring(estadoNovo), Color3.fromRGB(220,80,80))
         mostrarToast("Nao foi possivel trancar")
     end
     atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
@@ -1566,17 +1574,18 @@ criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), funct
     end
     local estadoAtual = lerTrancado(val)
     if estadoAtual == false then
-        setLog("Aviso: veiculo ja esta destrancado. (Trancado = false)", Color3.fromRGB(220,180,0))
+        setLog("Aviso: ja esta destrancado (Trancado = false)", Color3.fromRGB(220,180,0))
         return
     end
-    setLog("Tentando destrancar...", Color3.fromRGB(160,160,165))
-    local ok, resultados = escreverValor(val, false)
-    local logTxt = table.concat(resultados, " | ")
-    if ok then
-        setLog("SUCESSO: Trancado = false\n" .. logTxt, Color3.fromRGB(0,200,100))
+    setLog("Acionando destranca...", Color3.fromRGB(160,160,165))
+    local ok, msg = acionarTranca(veiculoSelecionado)
+    task.wait(0.3)
+    local estadoNovo = lerTrancado(val)
+    if estadoNovo == false then
+        setLog("SUCESSO: Trancado = false\n" .. msg, Color3.fromRGB(0,200,100))
         mostrarToast("Veiculo destrancado!")
     else
-        setLog("FALHOU: valor nao mudou\n" .. logTxt, Color3.fromRGB(220,80,80))
+        setLog("FALHOU: estado nao mudou\n" .. msg .. "\nTrancado ainda = " .. tostring(estadoNovo), Color3.fromRGB(220,80,80))
         mostrarToast("Nao foi possivel destrancar")
     end
     atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
