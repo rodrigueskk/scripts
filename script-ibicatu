@@ -115,7 +115,7 @@ local function applyLocalSuspension(altura)
     for _, c in ipairs(constraints) do
         local tag = tagDaRoda(string.upper(c.Name))
         if tag then
-            temTag += 1
+            temTag = temTag + 1
             table.insert(porTag[tag], c)
         end
     end
@@ -140,6 +140,20 @@ end
 
 local function applyLocalBrake(value)
     velocityMult2 = value / 1000
+end
+
+-- Lógica de Aderência (Grip) Adicionada
+local function applyTireGrip(vehicle, gripValue)
+    if not vehicle then return end
+    for _, part in ipairs(vehicle:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local name = string.upper(part.Name)
+            if string.find(name, "WHEEL") or string.find(name, "RODA") or string.find(name, "TIRE") or string.find(name, "PNEU") or tagDaRoda(name) then
+                local currentProps = part.CustomPhysicalProperties or PhysicalProperties.new(part.Material)
+                part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
+            end
+        end
+    end
 end
 
 -- UI rascunhos para teste
@@ -541,6 +555,20 @@ createButton(perfSection, "Parar Veículo (P)", function()
         end
     end
 end)
+
+-- Nova Seção de Customização de Rodas (Grip Adicionado)
+local wheelSection = createSection("Customização de Rodas")
+createSlider(wheelSection, {
+    Title = "Aderência dos Pneus (Grip)",
+    Min = 0, -- Permite diminuir bastante a aderência
+    Max = 5,
+    Step = 0.1,
+    Default = 1,
+    Format = "%.1f",
+    Changed = function(v)
+        applyTireGrip(getVehicle(), v)
+    end
+})
 
 -- Loop de Velocidade e Frenagem (Multiplicadores)
 RunService.Stepped:Connect(function()
