@@ -12,7 +12,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local configFileName = "ComitHubConfig.json"
 local configData = {
     notificationsEnabled = true,
-    duplicateLockEnabled = false,
+    duplicateLockEnabled = false, -- Desativado por padrão conforme solicitado
     dataSharingEnabled = false,
     primaryColor = {17, 17, 19},
     secondaryColor = {255, 255, 255},
@@ -40,7 +40,7 @@ loadConfig()
 local function toColor3(tbl) return Color3.fromRGB(tbl[1], tbl[2], tbl[3]) end
 local function fromColor3(c) return {math.floor(c.R*255), math.floor(c.G*255), math.floor(c.B*255)} end
 
--- 2. SISTEMA DE TRAVA DE EXECUÇÃO (ERRO 448)
+-- 2. SISTEMA DE TRAVA DE EXECUÇÃO (ERRO 448) - Via Notificação Padrão
 if playerGui:FindFirstChild("ComitHubUI") then
     if configData.duplicateLockEnabled then
         pcall(function()
@@ -55,8 +55,10 @@ if playerGui:FindFirstChild("ComitHubUI") then
 end
 
 -- Configurações Globais (Originais)
-local alturaMin, alturaMax = 0.05, 8
-local velocityMult, velocityMult2 = 0.025, 0.150
+local alturaMin = 0.05
+local alturaMax = 8
+local velocityMult = 0.025
+local velocityMult2 = 0.150
 local currentSuspension = 2.5
 
 local function clamp(n, a, b)
@@ -150,19 +152,24 @@ openStroke.Transparency = 0.25
 -- Lógica de Arrastar do Botão (SIMPLIFICADA)
 local draggingBtn = false
 local dragStartBtn, startPosBtn
+local hasMoved = false
 
 openButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         draggingBtn = true
         dragStartBtn = input.Position
         startPosBtn = openButton.Position
+        hasMoved = false
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartBtn
-        openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
+        if delta.Magnitude > 5 then
+            hasMoved = true
+            openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
+        end
     end
 end)
 
@@ -376,12 +383,14 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento (SIMPLIFICADO)
+-- Eventos de Abertura/Fechamento
 openButton.MouseButton1Click:Connect(function()
-    main.Visible = not main.Visible
-    if main.Visible then
-        main.Size = UDim2.new(0, 0, 0, 0)
-        TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 430)}):Play()
+    if not hasMoved then
+        main.Visible = not main.Visible
+        if main.Visible then
+            main.Size = UDim2.new(0, 0, 0, 0)
+            TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 430)}):Play()
+        end
     end
 end)
 
