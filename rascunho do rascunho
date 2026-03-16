@@ -1126,141 +1126,62 @@ antiFlipBtn.MouseButton1Click:Connect(function()
     setAntiFlip(not antiFlipAtivo)
 end)
 
--- ---- ESP de Veículos ----
-local espAtivo       = false
-local espBoxes       = {}   -- { [vehicle] = { box, label } }
-local espCamera      = workspace.CurrentCamera
+-- ---- ESP de Veículos (SelectionBox — leve e nativo) ----
+local espAtivo        = false
+local espSelections   = {}   -- { [vehicle] = SelectionBox }
+local espFolder       = Instance.new("Folder")
+espFolder.Name        = "ESP_Folder"
+espFolder.Parent      = workspace
 
-local ESP_COR        = Color3.fromRGB(255, 80, 80)
-local ESP_COR_PROPRIO = Color3.fromRGB(80, 200, 255)
+local ESP_COR         = Color3.fromRGB(255, 60, 60)
+local ESP_COR_PROPRIO = Color3.fromRGB(60, 180, 255)
 
 local espBtn = createButton(utilSection, "ESP Veículos: OFF", function() end)
 
 local function limparESP()
-    for _, data in pairs(espBoxes) do
-        pcall(function()
-            if data.gui then data.gui:Destroy() end
-        end)
+    for _, sb in pairs(espSelections) do
+        pcall(function() sb:Destroy() end)
     end
-    espBoxes = {}
+    espSelections = {}
 end
 
-local function criarESPBox(vehicle)
-    if espBoxes[vehicle] then return end
+local function ehMeuVeiculo(vehicle)
+    local myChar = player.Character
+    if not myChar then return false end
+    local hum = myChar:FindFirstChildOfClass("Humanoid")
+    return hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(vehicle)
+end
 
-    -- Descobre o PrimaryPart ou BasePart principal do veículo
-    local root = vehicle.PrimaryPart
-    if not root then
-        for _, p in ipairs(vehicle:GetDescendants()) do
-            if p:IsA("BasePart") and not p.Anchored then
-                root = p; break
+local function criarESP(vehicle)
+    if espSelections[vehicle] then return end
+
+    local cor = ehMeuVeiculo(vehicle) and ESP_COR_PROPRIO or ESP_COR
+
+    local sb = Instance.new("SelectionBox")
+    sb.Adornee         = vehicle
+    sb.Color3          = cor
+    sb.LineThickness   = 0.04
+    sb.SurfaceTransparency = 1        -- só borda, sem preenchimento
+    sb.SurfaceColor3   = cor
+    sb.Parent          = espFolder
+
+    espSelections[vehicle] = sb
+end
+
+local function escanearVeiculos()
+    -- Varre apenas os filhos diretos do workspace (não GetDescendants — muito pesado)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Model") and not espSelections[obj] then
+            if obj:FindFirstChildWhichIsA("VehicleSeat", true) then
+                criarESP(obj)
             end
         end
     end
-    if not root then return end
-
-    -- Verifica se é o próprio veículo do jogador
-    local ehProprio = false
-    local myChar = player.Character
-    if myChar then
-        local hum = myChar:FindFirstChildOfClass("Humanoid")
-        if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(vehicle) then
-            ehProprio = true
-        end
-    end
-
-    local bb = Instance.new("BillboardGui")
-    bb.Name        = "ESP_" .. vehicle.Name
-    bb.Adornee     = root
-    bb.AlwaysOnTop = true
-    bb.Size        = UDim2.new(0, 0, 0, 0)
-    bb.StudsOffsetWorldSpace = Vector3.new(0, 0, 0)
-    bb.Parent      = playerGui
-
-    -- Frame de borda (box)
-    local box = Instance.new("Frame")
-    box.Parent              = bb
-    box.BackgroundTransparency = 1
-    box.BorderSizePixel     = 0
-    box.Size                = UDim2.new(1, 0, 1, 0)
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Parent      = box
-    stroke.Thickness   = 2
-    stroke.Color       = ehProprio and ESP_COR_PROPRIO or ESP_COR
-    stroke.Transparency = 0
-
-    -- Label com nome do veículo e distância
-    local lbl = Instance.new("TextLabel")
-    lbl.Parent              = bb
-    lbl.BackgroundTransparency = 1
-    lbl.Size                = UDim2.new(1, 0, 0, 18)
-    lbl.Position            = UDim2.new(0, 0, 1, 4)
-    lbl.Font                = Enum.Font.GothamBold
-    lbl.TextSize            = 12
-    lbl.TextColor3          = ehProprio and ESP_COR_PROPRIO or ESP_COR
-    lbl.TextStrokeColor3    = Color3.new(0,0,0)
-    lbl.TextStrokeTransparency = 0.4
-    lbl.Text                = vehicle.Name
-
-    espBoxes[vehicle] = { gui = bb, root = root, label = lbl, stroke = stroke, proprio = ehProprio }
-end
-
-local function atualizarESP()
-    if not espAtivo then return end
-
-    -- Escaneia todos os modelos no workspace em busca de veículos
-    for _, model in ipairs(workspace:GetDescendants()) do
-        if model:IsA("Model") and not espBoxes[model] then
-            -- Verifica se tem VehicleSeat
-            for _, obj in ipairs(model:GetDescendants()) do
-                if obj:IsA("VehicleSeat") then
-                    criarESPBox(model)
-                    break
-                end
-            end
-        end
-    end
-
-    -- Atualiza tamanho da box baseado no tamanho do modelo e distância
-    local myChar = player.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-
-    for vehicle, data in pairs(espBoxes) do
-        -- Remove se o veículo sumiu
+    -- Remove boxes de veículos que sumiram
+    for vehicle, sb in pairs(espSelections) do
         if not vehicle.Parent then
-            pcall(function() data.gui:Destroy() end)
-            espBoxes[vehicle] = nil
-        else
-            local root = data.root
-            if root and root.Parent then
-                -- Calcula distância
-                local dist = 9999
-                if myRoot then
-                    dist = math.floor((myRoot.Position - root.Position).Magnitude)
-                end
-
-                -- Calcula tamanho da box em pixels baseado no bounding box do modelo
-                local cf, size = pcall(function()
-                    return model:GetBoundingBox()
-                end)
-
-                local w, h = 80, 40
-                if cf then
-                    -- size é o segundo retorno do GetBoundingBox
-                    local _, modelSize = vehicle:GetBoundingBox()
-                    -- Projeta no espaço da tela para escalar
-                    local screenPos, onScreen = espCamera:WorldToScreenPoint(root.Position)
-                    if onScreen then
-                        local scaleFactor = 1000 / math.max(screenPos.Z, 1)
-                        w = math.clamp(modelSize.X * scaleFactor, 30, 400)
-                        h = math.clamp(modelSize.Y * scaleFactor, 20, 300)
-                    end
-                end
-
-                data.gui.Size = UDim2.new(0, w, 0, h)
-                data.label.Text = vehicle.Name .. " [" .. dist .. "m]"
-            end
+            pcall(function() sb:Destroy() end)
+            espSelections[vehicle] = nil
         end
     end
 end
@@ -1273,7 +1194,7 @@ local function setESP(state)
             BackgroundColor3 = Color3.fromRGB(0, 180, 80),
             TextColor3       = Color3.fromRGB(255, 255, 255)
         }):Play()
-        atualizarESP()
+        escanearVeiculos()
     else
         espBtn.Text = "ESP Veículos: OFF"
         TweenService:Create(espBtn, TweenInfo.new(0.15), {
@@ -1930,12 +1851,12 @@ RunService.Stepped:Connect(function(_, dt)
         end
     end
 
-    -- ESP de veículos: atualiza a cada 0.1s para não pesar
+    -- ESP de veículos: escaneia a cada 3s (SelectionBox cuida do resto sozinha)
     if espAtivo then
         fpsESPTimer = fpsESPTimer + dt
-        if fpsESPTimer >= 0.1 then
+        if fpsESPTimer >= 3 then
             fpsESPTimer = 0
-            atualizarESP()
+            escanearVeiculos()
         end
     end
 
