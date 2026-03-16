@@ -205,6 +205,7 @@ main.Position = UDim2.new(0, 18, 0.5, -215)
 main.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
 main.BorderSizePixel = 0
 main.Visible = false
+main.ZIndex = 1
 
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 14)
@@ -225,12 +226,13 @@ local title = Instance.new("TextLabel")
 title.Parent = topBar
 title.BackgroundTransparency = 1
 title.Position = UDim2.new(0, 14, 0, 0)
-title.Size = UDim2.new(1, -56, 1, 0)
+title.Size = UDim2.new(1, -90, 1, 0)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Text = "ComitHub"
+title.ZIndex = 2
 
 local closeButton = Instance.new("TextButton")
 closeButton.Parent = topBar
@@ -242,6 +244,7 @@ closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 14
 closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.BorderSizePixel = 0
+closeButton.ZIndex = 5
 
 local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 8)
@@ -259,6 +262,7 @@ settingsButton.TextSize = 16
 settingsButton.TextColor3 = Color3.fromRGB(180, 180, 185)
 settingsButton.BorderSizePixel = 0
 settingsButton.AutoButtonColor = false
+settingsButton.ZIndex = 5
 
 local settingsBtnCorner = Instance.new("UICorner")
 settingsBtnCorner.CornerRadius = UDim.new(0, 8)
@@ -927,7 +931,7 @@ settingsPanel.Position = UDim2.new(0, 18, 0.5, -215 - 140)  -- acima do main
 settingsPanel.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
 settingsPanel.BorderSizePixel = 0
 settingsPanel.Visible = false
-settingsPanel.ZIndex = 10
+settingsPanel.ZIndex = 20
 
 local settingsPanelCorner = Instance.new("UICorner")
 settingsPanelCorner.CornerRadius = UDim.new(0, 14)
@@ -1087,14 +1091,18 @@ settingsButton.MouseLeave:Connect(function()
     }):Play()
 end)
 settingsButton.MouseButton1Click:Connect(function()
-    -- Posiciona o painel relativo ao main
-    settingsPanel.Position = UDim2.new(
-        main.Position.X.Scale,
-        main.Position.X.Offset,
-        main.Position.Y.Scale,
-        main.Position.Y.Offset - 140
-    )
-    settingsPanel.Visible = not settingsPanel.Visible
+    if not settingsPanel.Visible then
+        -- Posiciona sempre acima e alinhado com o main
+        settingsPanel.Position = UDim2.new(
+            main.Position.X.Scale,
+            main.Position.X.Offset,
+            main.Position.Y.Scale,
+            main.Position.Y.Offset - 140
+        )
+        settingsPanel.Visible = true
+    else
+        settingsPanel.Visible = false
+    end
 end)
 
 -- ============================================================
