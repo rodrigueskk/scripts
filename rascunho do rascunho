@@ -13,9 +13,9 @@ local alturaMax = 8
 local velocityMult = 0.025
 local velocityMult2 = 0.150
 local currentSuspension = 0
-local backfireEnabled = true
-local backfireKey = Enum.KeyCode.F -- Tecla padrão
+local backfireKey = Enum.KeyCode.F
 local isBackfiring = false
+local lightColor = Color3.fromRGB(255, 255, 255) -- Cor padrão branca
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -27,9 +27,7 @@ local tokensRoda = {
 local function tagDaRoda(nomeUpper)
     for tag, lista in pairs(tokensRoda) do
         for _, t in ipairs(lista) do
-            if nomeUpper:find(t, 1, true) then
-                return tag
-            end
+            if nomeUpper:find(t, 1, true) then return tag end
         end
     end
     return nil
@@ -49,7 +47,7 @@ gui.Parent = playerGui
 
 pcall(function()
     StarterGui:SetCore("SendNotification", {
-        Title = "ComitHub Backfire Key",
+        Title = "ComitHub Luzes & Backfire",
         Text = "Sistema carregado com sucesso",
         Duration = 4
     })
@@ -68,64 +66,24 @@ end
 local function getVehicleSeat(vehicle)
     if not vehicle then return nil end
     for _, obj in ipairs(vehicle:GetDescendants()) do
-        if obj:IsA("VehicleSeat") then
-            return obj
-        end
+        if obj:IsA("VehicleSeat") then return obj end
     end
     return nil
 end
 
--- Lógica de Suspensão
-local function aplicarAlturaConstraint(c, altura)
-    altura = clamp(altura, alturaMin, alturaMax)
-    if c:IsA("SpringConstraint") then
-        local ok = pcall(function() c.FreeLength = altura end)
-        return ok
-    elseif c:IsA("PrismaticConstraint") then
-        local ok = pcall(function()
-            local half = clamp(math.abs(altura), alturaMin, alturaMax)
-            c.LimitsEnabled = true
-            c.LowerLimit = -half
-            c.UpperLimit = half
-        end)
-        return ok
-    end
-    return false
-end
-
-local function applyLocalSuspension(altura)
-    currentSuspension = altura
-    local vehicle = getVehicle()
+-- Lógica de Luzes
+local function applyLightColor(vehicle, color)
     if not vehicle then return end
-    local constraints = {}
-    for _, d in ipairs(vehicle:GetDescendants()) do
-        if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
-            table.insert(constraints, d)
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if obj:IsA("Light") or obj:IsA("SurfaceLight") or obj:IsA("PointLight") or obj:IsA("SpotLight") then
+            obj.Color = color
+        elseif obj:IsA("BasePart") and (obj.Name:lower():find("neon") or obj.Name:lower():find("light") or obj.Name:lower():find("luz")) then
+            obj.Color = color
         end
-    end
-    if #constraints == 0 then return end
-    local porTag = {FL = {}, FR = {}, RL = {}, RR = {}}
-    local temTag = 0
-    for _, c in ipairs(constraints) do
-        local tag = tagDaRoda(string.upper(c.Name))
-        if tag then
-            temTag = temTag + 1
-            table.insert(porTag[tag], c)
-        end
-    end
-    if temTag > 0 then
-        for _, tag in ipairs({"FL","FR","RL","RR"}) do
-            for _, c in ipairs(porTag[tag]) do aplicarAlturaConstraint(c, altura) end
-        end
-    else
-        for _, c in ipairs(constraints) do aplicarAlturaConstraint(c, altura) end
     end
 end
 
-local function applyLocalSpeed(value) velocityMult = value / 1000 end
-local function applyLocalBrake(value) velocityMult2 = value / 1000 end
-
--- UI
+-- UI Setup (Simplificado para o Hub)
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -137,35 +95,22 @@ openButton.Text = "ABRIR"
 openButton.Font = Enum.Font.GothamBold
 openButton.TextSize = 16
 openButton.BorderSizePixel = 0
-openButton.AutoButtonColor = false
 
 local openCorner = Instance.new("UICorner")
 openCorner.CornerRadius = UDim.new(0, 12)
 openCorner.Parent = openButton
 
-local openStroke = Instance.new("UIStroke")
-openStroke.Parent = openButton
-openStroke.Thickness = 1.5
-openStroke.Color = Color3.fromRGB(85, 85, 90)
-openStroke.Transparency = 0.25
-
--- Drag do Botão Abrir
 local function makeDraggable(obj)
-    local dragging = false
-    local dragInput, dragStart, startPos
+    local dragging, dragInput, dragStart, startPos
     obj.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = obj.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
         end
     end)
-    obj.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-    end)
+    obj.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
             local delta = input.Position - dragStart
@@ -181,18 +126,10 @@ main.Parent = gui
 main.Size = UDim2.new(0, 360, 0, 430)
 main.Position = UDim2.new(0, 18, 0.5, -215)
 main.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
-main.BorderSizePixel = 0
 main.Visible = false
-
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 14)
 mainCorner.Parent = main
-
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Parent = main
-mainStroke.Thickness = 1.4
-mainStroke.Color = Color3.fromRGB(80, 80, 86)
-mainStroke.Transparency = 0.35
 
 local topBar = Instance.new("Frame")
 topBar.Parent = main
@@ -206,9 +143,9 @@ title.Position = UDim2.new(0, 14, 0, 0)
 title.Size = UDim2.new(1, -56, 1, 0)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
-title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Text = "ComitHub Backfire"
+title.Text = "ComitHub Custom"
+title.TextXAlignment = Enum.TextXAlignment.Left
 
 local closeButton = Instance.new("TextButton")
 closeButton.Parent = topBar
@@ -216,14 +153,14 @@ closeButton.Size = UDim2.new(0, 28, 0, 28)
 closeButton.Position = UDim2.new(1, -36, 0.5, -14)
 closeButton.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
 closeButton.Text = "X"
-closeButton.Font = Enum.Font.GothamBold
-closeButton.TextSize = 14
 closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.BorderSizePixel = 0
-
 local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 8)
 closeCorner.Parent = closeButton
+
+openButton.MouseButton1Click:Connect(function() main.Visible = not main.Visible end)
+closeButton.MouseButton1Click:Connect(function() main.Visible = false end)
 
 local scrolling = Instance.new("ScrollingFrame")
 scrolling.Parent = main
@@ -234,21 +171,16 @@ scrolling.BorderSizePixel = 0
 scrolling.ScrollBarThickness = 4
 scrolling.AutomaticCanvasSize = Enum.AutomaticSize.Y
 scrolling.CanvasSize = UDim2.new()
-
 local list = Instance.new("UIListLayout")
 list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
-
 local padding = Instance.new("UIPadding")
 padding.Parent = scrolling
 padding.PaddingTop = UDim.new(0, 10)
 padding.PaddingBottom = UDim.new(0, 10)
 padding.PaddingLeft = UDim.new(0, 10)
 padding.PaddingRight = UDim.new(0, 10)
-
-openButton.MouseButton1Click:Connect(function() main.Visible = not main.Visible end)
-closeButton.MouseButton1Click:Connect(function() main.Visible = false end)
 
 local function createSection(text)
     local section = Instance.new("Frame")
@@ -287,7 +219,6 @@ local function createKeybind(parent, text, default, callback)
     container.Parent = parent
     container.Size = UDim2.new(1, 0, 0, 36)
     container.BackgroundTransparency = 1
-
     local label = Instance.new("TextLabel")
     label.Parent = container
     label.Size = UDim2.new(1, -100, 1, 0)
@@ -297,7 +228,6 @@ local function createKeybind(parent, text, default, callback)
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
     label.Text = text
     label.TextXAlignment = Enum.TextXAlignment.Left
-
     local btn = Instance.new("TextButton")
     btn.Parent = container
     btn.Position = UDim2.new(1, -90, 0.5, -13)
@@ -310,27 +240,42 @@ local function createKeybind(parent, text, default, callback)
     local bCorner = Instance.new("UICorner")
     bCorner.CornerRadius = UDim.new(0, 6)
     bCorner.Parent = btn
-
     local listening = false
-    btn.MouseButton1Click:Connect(function()
-        listening = true
-        btn.Text = "..."
-    end)
-
+    btn.MouseButton1Click:Connect(function() listening = true; btn.Text = "..." end)
     UserInputService.InputBegan:Connect(function(input)
         if listening and input.UserInputType == Enum.UserInputType.Keyboard then
-            listening = false
-            btn.Text = input.KeyCode.Name
-            callback(input.KeyCode)
+            listening = false; btn.Text = input.KeyCode.Name; callback(input.KeyCode)
         end
     end)
 end
 
--- Seções
-local backfireSection = createSection("Backfire & Efeitos")
+local function createColorButton(parent, text, color, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundColor3 = color
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 13
+    btn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    btn.Text = text
+    btn.BorderSizePixel = 0
+    local bCorner = Instance.new("UICorner")
+    bCorner.CornerRadius = UDim.new(0, 8)
+    bCorner.Parent = btn
+    btn.MouseButton1Click:Connect(callback)
+end
+
+-- Seções da UI
+local backfireSection = createSection("Backfire")
 createKeybind(backfireSection, "Tecla Backfire", backfireKey, function(k) backfireKey = k end)
 
--- Lógica de Backfire
+local lightSection = createSection("Cor das Luzes")
+createColorButton(lightSection, "Vermelho", Color3.fromRGB(255, 0, 0), function() lightColor = Color3.fromRGB(255, 0, 0); applyLightColor(getVehicle(), lightColor) end)
+createColorButton(lightSection, "Azul", Color3.fromRGB(0, 0, 255), function() lightColor = Color3.fromRGB(0, 0, 255); applyLightColor(getVehicle(), lightColor) end)
+createColorButton(lightSection, "Verde", Color3.fromRGB(0, 255, 0), function() lightColor = Color3.fromRGB(0, 255, 0); applyLightColor(getVehicle(), lightColor) end)
+createColorButton(lightSection, "Roxo", Color3.fromRGB(170, 0, 255), function() lightColor = Color3.fromRGB(170, 0, 255); applyLightColor(getVehicle(), lightColor) end)
+
+-- Lógica de Backfire (Partícula)
 local function createFire(part)
     local fire = Instance.new("ParticleEmitter")
     fire.Name = "BackfireEffect"
@@ -363,35 +308,15 @@ RunService.Heartbeat:Connect(function()
                     end
                 end
             end
+            applyLightColor(vehicle, lightColor)
         end
     end
-
-    local active = backfireEnabled and isBackfiring
-    for _, p in pairs(exhaustParticles) do
-        p.Enabled = active
-    end
+    for _, p in pairs(exhaustParticles) do p.Enabled = isBackfiring end
 end)
 
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.KeyCode == backfireKey then
-        isBackfiring = true
-    elseif input.KeyCode == Enum.KeyCode.RightBracket then
-        main.Visible = not main.Visible
-    end
+    if input.KeyCode == backfireKey then isBackfiring = true
+    elseif input.KeyCode == Enum.KeyCode.RightBracket then main.Visible = not main.Visible end
 end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == backfireKey then
-        isBackfiring = false
-    end
-end)
-
-RunService.Stepped:Connect(function()
-    local vehicle = getVehicle()
-    if not vehicle then return end
-    local seat = getVehicleSeat(vehicle)
-    if not seat then return end
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult) end
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2) end
-end)
+UserInputService.InputEnded:Connect(function(input) if input.KeyCode == backfireKey then isBackfiring = false end end)
