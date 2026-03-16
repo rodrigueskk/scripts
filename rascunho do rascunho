@@ -5,7 +5,6 @@ local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Garante que o RemoteEvent exista para evitar erros de comunicação
 local ComitHubRemote = ReplicatedStorage:FindFirstChild("ComitHubRemote")
 if not ComitHubRemote then
     ComitHubRemote = Instance.new("RemoteEvent")
@@ -43,13 +42,20 @@ local function tagDaRoda(nomeUpper)
     return nil
 end
 
+local function isWheel(part)
+    local name = string.upper(part.Name)
+    if string.find(name, "WHEEL") or string.find(name, "RODA") or string.find(name, "TIRE") or string.find(name, "PNEU") then
+        return true
+    end
+    return tagDaRoda(name) ~= nil
+end
+
 local function clamp(n, a, b)
     if n < a then return a end
     if n > b then return b end
     return n
 end
 
--- Funções Auxiliares de Veículo
 local function getVehicle()
     local character = player.Character
     if not character then return nil end
@@ -129,39 +135,48 @@ local function applyLocalSuspension(altura)
     end
 end
 
--- Lógica de Customização de Rodas
+-- Lógica de Velocidade e Frenagem
+local function applyLocalSpeed(value)
+    velocityMult = value / 1000
+end
+
+local function applyLocalBrake(value)
+    velocityMult2 = value / 1000
+end
+
+-- Lógica de Customização de Rodas (CORRIGIDA)
 local function applyTireGrip(vehicle, gripValue)
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
-            local currentProps = part.CustomPhysicalProperties
-            if currentProps then
-                part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
-            else
-                part.CustomPhysicalProperties = PhysicalProperties.new(1, gripValue, 1, 1, 1)
-            end
+        if part:IsA("BasePart") and isWheel(part) then
+            local currentProps = part.CustomPhysicalProperties or PhysicalProperties.new(part.Material)
+            part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
         end
     end
 end
 
 local function applyWheelSpacer(vehicle, spacerValue)
     if not vehicle then return end
-    local wheelTags = {"FL", "FR", "RL", "RR"}
-    for _, tag in ipairs(wheelTags) do
-        for _, wheelPart in ipairs(vehicle:GetDescendants()) do
-            if wheelPart:IsA("Part") and string.find(string.upper(wheelPart.Name), tag) then
-                local originalOffset = wheelPart:GetAttribute("OriginalWheelOffset")
-                if not originalOffset then
-                    originalOffset = wheelPart.CFrame.Position
-                    wheelPart:SetAttribute("OriginalWheelOffset", originalOffset)
-                end
-                local direction = Vector3.new(0, 0, 0)
-                if tag == "FL" or tag == "RL" then
-                    direction = wheelPart.CFrame.RightVector * -1
-                else
-                    direction = wheelPart.CFrame.RightVector
-                end
-                wheelPart.CFrame = CFrame.new(originalOffset) + direction * spacerValue
+    for _, part in ipairs(vehicle:GetDescendants()) do
+        if part:IsA("BasePart") and isWheel(part) then
+            local originalOffset = part:GetAttribute("OriginalWheelOffset")
+            if not originalOffset then
+                originalOffset = part.CFrame.Position
+                part:SetAttribute("OriginalWheelOffset", originalOffset)
+            end
+            
+            local name = string.upper(part.Name)
+            local tag = tagDaRoda(name)
+            local direction = Vector3.new(0, 0, 0)
+            
+            if tag == "FL" or tag == "RL" or string.find(name, "LEFT") then
+                direction = part.CFrame.RightVector * -1
+            elseif tag == "FR" or tag == "RR" or string.find(name, "RIGHT") then
+                direction = part.CFrame.RightVector
+            end
+            
+            if direction.Magnitude > 0 then
+                part.CFrame = (part.CFrame - part.CFrame.Position) + (originalOffset + direction * spacerValue)
             end
         end
     end
@@ -170,7 +185,7 @@ end
 local function applyWheelSize(vehicle, sizeValue)
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
+        if part:IsA("BasePart") and isWheel(part) then
             local originalSize = part:GetAttribute("OriginalWheelSize")
             if not originalSize then
                 originalSize = part.Size
@@ -181,7 +196,7 @@ local function applyWheelSize(vehicle, sizeValue)
     end
 end
 
--- Interface do Usuário (UI)
+-- UI
 local gui = Instance.new("ScreenGui")
 gui.Name = "ComitHubUI"
 gui.ResetOnSpawn = false
@@ -291,7 +306,6 @@ list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Arrastar Janela
 local draggingWindow = false
 local dragStart
 local startPos
@@ -320,7 +334,6 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Interações de Botão
 openButton.MouseEnter:Connect(function()
     TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -343,7 +356,6 @@ closeButton.MouseButton1Click:Connect(function()
     main.Visible = false
 end)
 
--- Funções de Criação de UI
 local function createSection(text)
     local section = Instance.new("Frame")
     section.Parent = scrolling
@@ -544,7 +556,7 @@ local function createSlider(parent, config)
     }
 end
 
--- Montagem das Seções
+-- Seções
 local suspensionSection = createSection("Suspensão")
 local suspensionSlider = createSlider(suspensionSection, {
     Title = "Altura da suspensão",
@@ -571,7 +583,7 @@ createSlider(perfSection, {
     Default = 25,
     Format = "%.0f (milésimos)",
     Changed = function(v)
-        velocityMult = v / 1000
+        applyLocalSpeed(v)
     end
 })
 
@@ -583,7 +595,7 @@ createSlider(perfSection, {
     Default = 150,
     Format = "%.0f (milésimos)",
     Changed = function(v)
-        velocityMult2 = v / 1000
+        applyLocalBrake(v)
     end
 })
 
@@ -598,7 +610,7 @@ createButton(perfSection, "Parar Veículo (P)", function()
     end
 end)
 
--- Loop de Velocidade e Frenagem
+-- Loop de Movimento
 RunService.Stepped:Connect(function()
     local vehicle = getVehicle()
     if not vehicle then return end
@@ -662,9 +674,8 @@ footer.Size = UDim2.new(1, 0, 0, 24)
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
-footer.Text = "Feito por Rodrigues (Corrigido)"
+footer.Text = "Feito por Rodrigues"
 
--- Atalho de Teclado
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
