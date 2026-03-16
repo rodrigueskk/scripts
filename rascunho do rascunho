@@ -1307,17 +1307,30 @@ trancaList.SortOrder = Enum.SortOrder.LayoutOrder
 local veiculoSelecionado = nil
 local botoesVeiculo = {}   -- { [vehicle] = TextButton }
 
--- Encontra o valor Trancado dentro do Body do veículo
+-- Encontra o valor Trancado dentro de vehicle.Body.Tranca.Trancado
 local function encontrarTrancado(vehicle)
     local body = vehicle:FindFirstChild("Body")
-    if not body then
-        -- Fallback: busca recursivo pelo nome "Trancado"
-        return vehicle:FindFirstChild("Trancado", true)
-    end
-    return body:FindFirstChild("Trancado")
+    if not body then return nil, nil end
+    local tranca = body:FindFirstChild("Tranca")
+    if not tranca then return nil, nil end
+    local val = tranca:FindFirstChild("Trancado")
+    return val, body
 end
 
--- Lê o estado atual do Trancado (compatível com Bool, Int e String)
+-- Encontra o ProximityPrompt de tranca dentro do Body
+local function encontrarPrompt(vehicle)
+    local body = vehicle:FindFirstChild("Body")
+    if not body then return nil end
+    -- Busca ProximityPrompt em qualquer descendente do Body
+    for _, obj in ipairs(body:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            return obj
+        end
+    end
+    return nil
+end
+
+-- Lê o estado atual do Trancado
 local function lerTrancado(val)
     if not val then return nil end
     if val:IsA("BoolValue") then
@@ -1330,52 +1343,43 @@ local function lerTrancado(val)
     return nil
 end
 
--- Escreve o estado no Trancado (compatível com os 3 tipos)
-local function escreverTrancado(val, estado)
-    if not val then return false end
-    local ok = false
-    pcall(function()
-        if val:IsA("BoolValue") then
-            val.Value = estado
-            ok = true
-        elseif val:IsA("IntValue") or val:IsA("NumberValue") then
-            val.Value = estado and 1 or 0
-            ok = true
-        elseif val:IsA("StringValue") then
-            val.Value = estado and "true" or "false"
-            ok = true
-        end
+-- Dispara o ProximityPrompt para alternar a tranca (igual ao dono clicando)
+local function acionarPrompt(vehicle)
+    local prompt = encontrarPrompt(vehicle)
+    if not prompt then return false end
+    -- Método 1: FireProximityPrompt (disponível em executores)
+    local ok = pcall(function()
+        fireproximityprompt(prompt)
+    end)
+    if ok then return true end
+    -- Método 2: TriggerPrompt via função nativa do executor
+    ok = pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(0.05)
+        prompt:InputHoldEnd()
     end)
     return ok
 end
 
 -- Atualiza o visual do botão de um veículo na lista
 local function atualizarBotaoVeiculo(vehicle, btn)
-    local val = encontrarTrancado(vehicle)
+    local val, _ = encontrarTrancado(vehicle)
     local trancado = lerTrancado(val)
     local selecionado = veiculoSelecionado == vehicle
 
-    local bgCor
-    if selecionado then
-        bgCor = Color3.fromRGB(40, 60, 90)
-    else
-        bgCor = Color3.fromRGB(26, 26, 30)
-    end
+    btn.BackgroundColor3 = selecionado and Color3.fromRGB(40, 60, 90) or Color3.fromRGB(26, 26, 30)
 
-    btn.BackgroundColor3 = bgCor
-
-    local status = ""
+    local status
     if trancado == true then
-        status = " 🔒"
+        status = " [TRANCADO]"
     elseif trancado == false then
-        status = " 🔓"
+        status = " [ABERTO]"
     else
-        status = " ?"
+        status = " [?]"
     end
 
-    -- Mostra nome curto + status
     local nome = vehicle.Name
-    if #nome > 20 then nome = nome:sub(1,20) .. "…" end
+    if #nome > 18 then nome = nome:sub(1,18) .. "..." end
     btn.Text = nome .. status
 end
 
@@ -1476,41 +1480,55 @@ local function criarBotaoAcao(parent, texto, corFundo, callback)
     return btn
 end
 
-criarBotaoAcao(trancaAcaoHolder, "🔒 Trancar", Color3.fromRGB(180, 40, 40), function()
+criarBotaoAcao(trancaAcaoHolder, "TRANCAR", Color3.fromRGB(180, 40, 40), function()
     if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        mostrarToast("Selecione um veículo primeiro!")
+        mostrarToast("Selecione um veiculo primeiro!")
         return
     end
-    local val = encontrarTrancado(veiculoSelecionado)
+    local val, _ = encontrarTrancado(veiculoSelecionado)
     if not val then
-        mostrarToast("'Trancado' não encontrado no Body!")
+        mostrarToast("Body.Tranca.Trancado nao encontrado!")
         return
     end
-    local ok = escreverTrancado(val, true)
+    local estadoAtual = lerTrancado(val)
+    -- Só aciona se não estiver já trancado
+    if estadoAtual == true then
+        mostrarToast("Ja esta trancado!")
+        return
+    end
+    local ok = acionarPrompt(veiculoSelecionado)
+    task.wait(0.2)
+    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
     if ok then
-        atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
-        mostrarToast("Veículo trancado!")
+        mostrarToast("Veiculo trancado!")
     else
-        mostrarToast("Falha ao trancar")
+        mostrarToast("Prompt nao encontrado no Body")
     end
 end)
 
-criarBotaoAcao(trancaAcaoHolder, "🔓 Destrancar", Color3.fromRGB(0, 140, 60), function()
+criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), function()
     if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        mostrarToast("Selecione um veículo primeiro!")
+        mostrarToast("Selecione um veiculo primeiro!")
         return
     end
-    local val = encontrarTrancado(veiculoSelecionado)
+    local val, _ = encontrarTrancado(veiculoSelecionado)
     if not val then
-        mostrarToast("'Trancado' não encontrado no Body!")
+        mostrarToast("Body.Tranca.Trancado nao encontrado!")
         return
     end
-    local ok = escreverTrancado(val, false)
+    local estadoAtual = lerTrancado(val)
+    -- Só aciona se não estiver já destrancado
+    if estadoAtual == false then
+        mostrarToast("Ja esta destrancado!")
+        return
+    end
+    local ok = acionarPrompt(veiculoSelecionado)
+    task.wait(0.2)
+    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
     if ok then
-        atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
-        mostrarToast("Veículo destrancado!")
+        mostrarToast("Veiculo destrancado!")
     else
-        mostrarToast("Falha ao destrancar")
+        mostrarToast("Prompt nao encontrado no Body")
     end
 end)
 
