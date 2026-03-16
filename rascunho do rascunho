@@ -38,6 +38,7 @@ end
 loadConfig()
 
 local function toColor3(tbl) return Color3.fromRGB(tbl[1], tbl[2], tbl[3]) end
+local function fromColor3(c) return {math.floor(c.R*255), math.floor(c.G*255), math.floor(c.B*255)} end
 
 -- 2. SISTEMA DE TRAVA DE EXECUÇÃO (ERRO 448)
 if playerGui:FindFirstChild("ComitHubUI") then
@@ -57,6 +58,46 @@ end
 local alturaMin, alturaMax = 0.05, 8
 local velocityMult, velocityMult2 = 0.025, 0.150
 local currentSuspension = 2.5
+
+-- 3. SISTEMA DE DESFAZER (CTRL + Z)
+local history = {
+    suspension = {2.5},
+    speed = {25},
+    brake = {150}
+}
+
+local function addToHistory(type, val)
+    if history[type][#history[type]] ~= val then
+        table.insert(history[type], val)
+        if #history[type] > 20 then table.remove(history[type], 1) end
+    end
+end
+
+local function undo()
+    if #history.suspension > 1 then
+        table.remove(history.suspension)
+        local last = history.suspension[#history.suspension]
+        _G.suspensionSlider.SetValue(last)
+    end
+    if #history.speed > 1 then
+        table.remove(history.speed)
+        local last = history.speed[#history.speed]
+        _G.speedSlider.SetValue(last)
+    end
+    if #history.brake > 1 then
+        table.remove(history.brake)
+        local last = history.brake[#history.brake]
+        _G.brakeSlider.SetValue(last)
+    end
+    notify("Desfeito", "Alteracoes revertidas (Ctrl+Z)")
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Z and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+        undo()
+    end
+end)
 
 local function clamp(n, a, b)
     if n < a then return a end
@@ -194,7 +235,7 @@ local topBar = Instance.new("Frame", main)
 topBar.Size = UDim2.new(1, 0, 0, 42)
 topBar.BackgroundTransparency = 1
 
--- LÓGICA DE ARRASTAR DO HUB (CORREÇÃO)
+-- Lógica de Arrastar do HUB
 local draggingHub = false
 local dragStartHub, startPosHub
 
@@ -270,7 +311,7 @@ scrolling.CanvasSize = UDim2.new()
 Instance.new("UIListLayout", scrolling).Padding = UDim.new(0, 10)
 Instance.new("UIPadding", scrolling).PaddingTop = UDim.new(0, 4)
 
--- MENU DE CONFIGURAÇÕES
+-- MENU DE CONFIGURAÇÕES (SEM ANIMAÇÃO)
 local settingsFrame = Instance.new("Frame", main)
 settingsFrame.Size = UDim2.new(1, 0, 1, -42)
 settingsFrame.Position = UDim2.new(0, 0, 0, 42)
@@ -283,6 +324,38 @@ local settingsList = Instance.new("UIListLayout", settingsFrame)
 settingsList.Padding = UDim.new(0, 10)
 settingsList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 Instance.new("UIPadding", settingsFrame).PaddingTop = UDim.new(0, 15)
+
+-- PALETA DE CORES (GRADE)
+local colorPalette = Instance.new("Frame", gui)
+colorPalette.Size = UDim2.new(0, 180, 0, 180)
+colorPalette.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+colorPalette.BorderSizePixel = 0
+colorPalette.Visible = false
+colorPalette.ZIndex = 20
+Instance.new("UICorner", colorPalette).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", colorPalette).Color = Color3.fromRGB(80, 80, 86)
+local paletteGrid = Instance.new("UIGridLayout", colorPalette)
+paletteGrid.CellSize = UDim2.new(0, 35, 0, 35)
+paletteGrid.Padding = UDim2.new(0, 8, 0, 8)
+Instance.new("UIPadding", colorPalette).PaddingTop = UDim.new(0, 10)
+
+local paletteColors = {
+    Color3.fromRGB(160, 32, 240), Color3.fromRGB(255, 165, 0), Color3.fromRGB(255, 255, 0),
+    Color3.fromRGB(0, 191, 255), Color3.fromRGB(50, 205, 50), Color3.fromRGB(255, 255, 255),
+    Color3.fromRGB(17, 17, 19), Color3.fromRGB(35, 35, 38)
+}
+
+local activeCallback = nil
+for _, c in ipairs(paletteColors) do
+    local btn = Instance.new("TextButton", colorPalette)
+    btn.BackgroundColor3 = c
+    btn.Text = ""
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    btn.MouseButton1Click:Connect(function()
+        if activeCallback then activeCallback(c) end
+        colorPalette.Visible = false
+    end)
+end
 
 local function createToggle(text, desc, key, callback)
     local frame = Instance.new("Frame", settingsFrame)
@@ -333,9 +406,42 @@ local function createToggle(text, desc, key, callback)
     update(configData[key])
 end
 
+local function createColorPicker(text, key, callback)
+    local frame = Instance.new("Frame", settingsFrame)
+    frame.Size = UDim2.new(0.9, 0, 0, 30)
+    frame.BackgroundTransparency = 1
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.TextColor3 = toColor3(configData.secondaryColor)
+    label.Text = text
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    local colorBtn = Instance.new("TextButton", frame)
+    colorBtn.Size = UDim2.new(0, 40, 0, 22)
+    colorBtn.Position = UDim2.new(1, -40, 0.5, -11)
+    colorBtn.BackgroundColor3 = toColor3(configData[key])
+    colorBtn.Text = ""
+    Instance.new("UICorner", colorBtn).CornerRadius = UDim.new(0, 6)
+    colorBtn.MouseButton1Click:Connect(function()
+        activeCallback = function(c)
+            colorBtn.BackgroundColor3 = c
+            configData[key] = fromColor3(c)
+            saveConfig()
+            callback(c)
+        end
+        colorPalette.Position = UDim2.new(0, colorBtn.AbsolutePosition.X - 190, 0, colorBtn.AbsolutePosition.Y)
+        colorPalette.Visible = true
+    end)
+end
+
 createToggle("Habilitar Notificacoes", nil, "notificationsEnabled")
 createToggle("Trava de Execucao", "Sistema anti-lag", "duplicateLockEnabled")
 createToggle("Compartilhamento de Dados", "Terceiros podem usar as modificacoes", "dataSharingEnabled")
+createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.BackgroundColor3 = c settingsFrame.BackgroundColor3 = c end)
+createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
+createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
 -- Eventos de Abertura/Fechamento
 openButton.MouseButton1Click:Connect(function()
@@ -356,10 +462,7 @@ end)
 
 settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
-    if settingsFrame.Visible then
-        settingsFrame.Position = UDim2.new(1, 0, 0, 42)
-        TweenService:Create(settingsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 42)}):Play()
-    end
+    -- REMOVIDA ANIMAÇÃO DE ARRASTAR AO ABRIR CONFIGURAÇÕES
 end)
 
 -- Funções de UI Originais
@@ -443,12 +546,74 @@ end
 
 -- Conteúdo
 local suspensionSection = createSection("Suspensão")
-local suspensionSlider = createSlider(suspensionSection, {Title = "Altura da suspensão", Min = 0.05, Max = 8, Step = 0.05, Default = 2.5, Format = "%.2f", Changed = function(v) applyLocalSuspension(v) end})
-createButton(suspensionSection, "Resetar suspensão", function() suspensionSlider.SetValue(2.5) end)
+_G.suspensionSlider = createSlider(suspensionSection, {Title = "Altura da suspensão", Min = 0.05, Max = 8, Step = 0.05, Default = 2.5, Format = "%.2f", Changed = function(v) addToHistory("suspension", v) applyLocalSuspension(v) end})
+createButton(suspensionSection, "Resetar suspensão", function() _G.suspensionSlider.SetValue(2.5) end)
 
 local perfSection = createSection("Estatísticas")
-createSlider(perfSection, {Title = "Velocidade", Min = 0, Max = 50, Step = 1, Default = 25, Format = "%.0f (milésimos)", Changed = function(v) velocityMult = v/1000 end})
-createSlider(perfSection, {Title = "Frenagem", Min = 0, Max = 300, Step = 1, Default = 150, Format = "%.0f (milésimos)", Changed = function(v) velocityMult2 = v/1000 end})
+_G.speedSlider = createSlider(perfSection, {Title = "Velocidade", Min = 0, Max = 50, Step = 1, Default = 25, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("speed", v) velocityMult = v/1000 end})
+_G.brakeSlider = createSlider(perfSection, {Title = "Frenagem", Min = 0, Max = 300, Step = 1, Default = 150, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("brake", v) velocityMult2 = v/1000 end})
+
+-- 4. SISTEMA DE CHAVES
+local keysSection = createSection("Chaves")
+local keysScroll = Instance.new("ScrollingFrame", keysSection)
+keysScroll.Size = UDim2.new(1, 0, 0, 120)
+keysScroll.BackgroundTransparency = 1
+keysScroll.BorderSizePixel = 0
+keysScroll.ScrollBarThickness = 2
+keysScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Instance.new("UIListLayout", keysScroll).Padding = UDim.new(0, 5)
+
+local function updateKeys()
+    for _, child in ipairs(keysScroll:GetChildren()) do if child:IsA("Frame") then child:Destroy() end end
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("Model") and v.Name:find("sCar") then
+            local carFrame = Instance.new("Frame", keysScroll)
+            carFrame.Size = UDim2.new(1, 0, 0, 30)
+            carFrame.BackgroundTransparency = 1
+            local carLabel = Instance.new("TextLabel", carFrame)
+            carLabel.Size = UDim2.new(0.6, 0, 1, 0)
+            carLabel.BackgroundTransparency = 1
+            carLabel.Font = Enum.Font.Gotham
+            carLabel.TextSize = 11
+            carLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            carLabel.Text = v.Name
+            carLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            local function setLock(state)
+                local body = v:FindFirstChild("Body")
+                if body then
+                    local tranca = body:FindFirstChild("Tranca")
+                    if tranca then
+                        local trancado = tranca:FindFirstChild("Trancado")
+                        if trancado then trancado.Value = state end
+                    end
+                end
+            end
+
+            local lockBtn = Instance.new("TextButton", carFrame)
+            lockBtn.Size = UDim2.new(0, 40, 0, 20)
+            lockBtn.Position = UDim2.new(0.65, 0, 0.5, -10)
+            lockBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            lockBtn.Text = "Trancar"
+            lockBtn.TextSize = 10
+            lockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            Instance.new("UICorner", lockBtn).CornerRadius = UDim.new(0, 4)
+            lockBtn.MouseButton1Click:Connect(function() setLock(true) notify("Chaves", v.Name .. " Trancado") end)
+
+            local unlockBtn = Instance.new("TextButton", carFrame)
+            unlockBtn.Size = UDim2.new(0, 45, 0, 20)
+            unlockBtn.Position = UDim2.new(0.8, 0, 0.5, -10)
+            unlockBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+            unlockBtn.Text = "Destrancar"
+            unlockBtn.TextSize = 10
+            unlockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            Instance.new("UICorner", unlockBtn).CornerRadius = UDim.new(0, 4)
+            unlockBtn.MouseButton1Click:Connect(function() setLock(false) notify("Chaves", v.Name .. " Destrancado") end)
+        end
+    end
+end
+createButton(keysSection, "Atualizar Lista de Carros", updateKeys)
+updateKeys()
 
 local empSection = createSection("Emplacamento")
 local inputPlaca = Instance.new("TextBox", empSection)
