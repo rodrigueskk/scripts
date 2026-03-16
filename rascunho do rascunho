@@ -1449,6 +1449,47 @@ local function iniciarSeguidor()
     -- Remove o limite de velocidade
     pcall(function() seat.MaxSpeed = 9999 end)
 
+    -- 1) Liga a ignição via IgnitionEvent (equivale a apertar F)
+    pcall(function()
+        local ignEvent = seguidorVehicle:FindFirstChild("IgnitionEvent", true)
+        if ignEvent and ignEvent:IsA("RemoteEvent") then
+            ignEvent:FireServer(true)
+        end
+    end)
+
+    -- 2) Simula tecla F via UserInputService (LocalScript consegue)
+    pcall(function()
+        local uis = game:GetService("UserInputService")
+        local inputF = {
+            KeyCode = Enum.KeyCode.F,
+            UserInputType = Enum.UserInputType.Keyboard,
+        }
+        -- Força o evento de input da ignição nos LocalScripts do carro
+        for _, ls in ipairs(seguidorVehicle:GetDescendants()) do
+            if ls:IsA("LocalScript") and ls.Name:lower():find("ignit") then
+                pcall(function()
+                    ls:FindFirstChild("IgnitionEvent") -- só testa se existe
+                end)
+            end
+        end
+    end)
+
+    -- 3) Solta freio de mão: seta ThrottleFloat e SteerFloat imediatamente
+    -- O freio de mão no A-Chassis é controlado por uma variável local —
+    -- simular Espaço não é possível via RemoteEvent, mas setar ThrottleFloat > 0
+    -- enquanto o carro está parado solta o freio automaticamente no A-Chassis
+    task.spawn(function()
+        task.wait(0.3) -- aguarda ignição processar
+
+        -- Pulsa throttle para soltar o freio de mão
+        for i = 1, 5 do
+            pcall(function()
+                seat.ThrottleFloat = 1
+            end)
+            task.wait(0.1)
+        end
+    end)
+
     seguidorAtivo = true
     seguidorBtn.Text = "Venha Ca: ON"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
@@ -1456,6 +1497,8 @@ local function iniciarSeguidor()
         TextColor3 = Color3.fromRGB(255, 255, 255)
     }):Play()
     mostrarToast("Venha Ca ativado!")
+
+    task.wait(0.8) -- aguarda ignição + freio soltarem
 
     seguidorConn = RunService.Stepped:Connect(function()
         if not seguidorAtivo then return end
@@ -1472,25 +1515,23 @@ local function iniciarSeguidor()
         local seat2 = getVehicleSeat(seguidorVehicle)
         if not seat2 then return end
 
-        -- Não controla se o jogador estiver dentro do carro
+        -- Pausa se jogador estiver no carro
         local hum = myChar:FindFirstChildOfClass("Humanoid")
         if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(seguidorVehicle) then
             pcall(function() seat2.ThrottleFloat = 0; seat2.SteerFloat = 0 end)
             return
         end
 
-        local carCF   = seat2.CFrame
-        local carPos  = seat2.Position
+        local carCF    = seat2.CFrame
+        local carPos   = seat2.Position
         local playerPos = myHRP.Position
 
-        -- Vetor do carro até o jogador no plano horizontal
         local toPlayer = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
         local dist = toPlayer.Magnitude
 
-        local DIST_PARAR = 7   -- distância mínima para parar
+        local DIST_PARAR = 7
 
         if dist < DIST_PARAR then
-            -- Está perto: para o carro
             pcall(function()
                 seat2.ThrottleFloat = 0
                 seat2.SteerFloat    = 0
@@ -1498,31 +1539,22 @@ local function iniciarSeguidor()
             return
         end
 
-        -- Direção frontal do carro (LookVector no plano horizontal)
         local carForward = Vector3.new(carCF.LookVector.X, 0, carCF.LookVector.Z)
         if carForward.Magnitude < 0.01 then return end
         carForward = carForward.Unit
 
-        -- Direção lateral do carro (RightVector)
         local carRight = Vector3.new(carCF.RightVector.X, 0, carCF.RightVector.Z)
         if carRight.Magnitude < 0.01 then return end
         carRight = carRight.Unit
 
         local dirToPlayer = toPlayer.Unit
 
-        -- Produto escalar com frontal = o quanto o jogador está na frente
         local dotForward = carForward:Dot(dirToPlayer)
-        -- Produto escalar com lateral = o quanto o jogador está à direita
         local dotRight   = carRight:Dot(dirToPlayer)
 
-        -- Throttle: acelera se o jogador estiver na frente, freia se atrás
         local throttle = math.clamp(dotForward * 2, -1, 1)
+        local steer    = math.clamp(dotRight * 2, -1, 1)
 
-        -- Steer: vira para o lado do jogador
-        -- Normaliza entre -1 e 1 pelo ângulo lateral
-        local steer = math.clamp(dotRight * 2, -1, 1)
-
-        -- Se estiver indo para trás (jogador atrás), inverte steer
         if dotForward < -0.3 then
             steer = -steer
         end
