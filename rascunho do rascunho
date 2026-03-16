@@ -196,6 +196,9 @@ local function applyTireGrip(vehicle, gripValue)
         end
     end
 end
+-- Flag para bloquear interações do hub quando configurações estão abertas
+local settingsPanelVisivel = false
+
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -340,8 +343,49 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
+-- Drag do botão ABRIR + clique sem abrir ao arrastar
+local openBtnDragging = false
+local openBtnDragStart = nil
+local openBtnStartPos  = nil
+local openBtnMoved     = false
+local DRAG_THRESHOLD   = 6  -- pixels mínimos para considerar arrasto
+
+openButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        openBtnDragging = true
+        openBtnMoved    = false
+        openBtnDragStart = input.Position
+        openBtnStartPos  = openButton.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if openBtnDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - openBtnDragStart
+        if delta.Magnitude > DRAG_THRESHOLD then
+            openBtnMoved = true
+        end
+        if openBtnMoved then
+            openButton.Position = UDim2.new(
+                openBtnStartPos.X.Scale, openBtnStartPos.X.Offset + delta.X,
+                openBtnStartPos.Y.Scale, openBtnStartPos.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        openBtnDragging = false
+    end
+end)
+
 openButton.MouseButton1Click:Connect(function()
-    main.Visible = not main.Visible
+    -- Só abre/fecha se não foi arrastar
+    if not openBtnMoved then
+        main.Visible = not main.Visible
+    end
+    openBtnMoved = false
 end)
 
 closeButton.MouseButton1Click:Connect(function()
@@ -422,6 +466,7 @@ local function createButton(parent, text, callback)
     end)
 
     btn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
         if callback then callback() end
     end)
 
@@ -512,6 +557,7 @@ local function createSlider(parent, config)
     end
 
     sliderFrame.InputBegan:Connect(function(input)
+        if settingsPanelVisivel then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             update(input)
@@ -973,7 +1019,7 @@ local autoFarmAtivo = false
 local autoFarmDir   = 1
 local autoFarmConn  = nil
 local AUTO_ALTURA   = 300
-local AUTO_SPEED    = 200
+local AUTO_SPEED    = 1500  -- studs/s ≈ 5400 km/h
 
 local autoFarmSection = createSection("AutoFarm")
 local autoFarmBtn = createButton(autoFarmSection, "▶ Ativar AutoFarm", function() end)
@@ -998,6 +1044,13 @@ local function iniciarAutoFarm()
         end)
         return
     end
+
+    -- Remove o limite de velocidade do VehicleSeat
+    local seat0 = getVehicleSeat(vehicle)
+    if seat0 then
+        pcall(function() seat0.MaxSpeed = 9999 end)
+    end
+
     autoFarmAtivo = true
     autoFarmDir   = 1
     autoFarmBtn.Text = "⏹ Parar AutoFarm"
@@ -1012,15 +1065,18 @@ local function iniciarAutoFarm()
         local seat = v2 and getVehicleSeat(v2)
         if not seat then pararAutoFarm(); return end
 
+        -- Garante MaxSpeed alto todo frame (alguns jogos resetam)
+        pcall(function() seat.MaxSpeed = 9999 end)
+
         local pos = seat.Position
-        -- Sobe até AUTO_ALTURA, depois vai e volta no eixo X
         if pos.Y < AUTO_ALTURA - 5 then
+            -- Sobe rapidamente
             seat.AssemblyLinearVelocity = Vector3.new(0, AUTO_SPEED, 0)
         else
+            -- Voa em alta velocidade indo e voltando
             seat.AssemblyLinearVelocity = Vector3.new(AUTO_SPEED * autoFarmDir, 0, 0)
             seat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            -- Inverte direção a cada 300 studs de deslocamento
-            if math.abs(pos.X) > 300 then
+            if math.abs(pos.X) > 400 then
                 autoFarmDir = -autoFarmDir
             end
         end
@@ -1132,6 +1188,7 @@ sCBCorner.CornerRadius = UDim.new(0, 8)
 sCBCorner.Parent = sCloseBtn
 
 sCloseBtn.MouseButton1Click:Connect(function()
+    settingsPanelVisivel = false
     settingsPanel.Visible = false
 end)
 
@@ -1213,6 +1270,48 @@ local function criarRowToggle(parent, labelTxt, descTxt, zBase, defaultOn, onCha
         if onChange then onChange(state) end
     end)
     return row
+end
+
+-- ---- Prefixos de Tema ----
+local temaPresets = {
+    { nome = "🌑 Dark",           p = Color3.fromRGB(17,17,19),    s = Color3.fromRGB(255,255,255), t = Color3.fromRGB(255,255,255), q = Color3.fromRGB(255,255,255) },
+    { nome = "☀️ Claro",          p = Color3.fromRGB(240,240,245), s = Color3.fromRGB(80,80,90),   t = Color3.fromRGB(20,20,25),   q = Color3.fromRGB(80,80,90)   },
+    { nome = "🔴 Vermelho Escuro", p = Color3.fromRGB(28,8,8),     s = Color3.fromRGB(220,50,50),  t = Color3.fromRGB(255,200,200), q = Color3.fromRGB(200,40,40)  },
+}
+
+local presetLabel = Instance.new("TextLabel"); presetLabel.Parent = sScroll
+presetLabel.BackgroundTransparency = 1; presetLabel.Size = UDim2.new(1,0,0,20)
+presetLabel.Font = Enum.Font.GothamBold; presetLabel.TextSize = 13
+presetLabel.TextXAlignment = Enum.TextXAlignment.Left
+presetLabel.TextColor3 = Color3.fromRGB(255,255,255); presetLabel.Text = "Temas Rápidos"; presetLabel.ZIndex = 11
+
+local presetRow = Instance.new("Frame"); presetRow.Parent = sScroll
+presetRow.Size = UDim2.new(1,0,0,36); presetRow.BackgroundTransparency = 1; presetRow.ZIndex = 11
+
+local presetList = Instance.new("UIListLayout"); presetList.Parent = presetRow
+presetList.FillDirection = Enum.FillDirection.Horizontal
+presetList.Padding = UDim.new(0,6); presetList.SortOrder = Enum.SortOrder.LayoutOrder
+
+for _, preset in ipairs(temaPresets) do
+    local pbtn = Instance.new("TextButton"); pbtn.Parent = presetRow
+    pbtn.Size = UDim2.new(0, 100, 1, 0)
+    pbtn.BackgroundColor3 = preset.p; pbtn.BorderSizePixel = 0
+    pbtn.Font = Enum.Font.GothamBold; pbtn.TextSize = 10
+    pbtn.TextColor3 = preset.t; pbtn.Text = preset.nome
+    pbtn.AutoButtonColor = false; pbtn.ZIndex = 12
+    pbtn.TextScaled = true
+    local pbc = Instance.new("UICorner"); pbc.CornerRadius = UDim.new(0,8); pbc.Parent = pbtn
+    local pbs = Instance.new("UIStroke"); pbs.Parent = pbtn; pbs.Thickness = 1
+    pbs.Color = Color3.fromRGB(80,80,86); pbs.Transparency = 0.4
+
+    pbtn.MouseButton1Click:Connect(function()
+        tema.primaria    = preset.p
+        tema.secundaria  = preset.s
+        tema.terciaria   = preset.t
+        tema.quaternaria = preset.q
+        aplicarTema()
+        salvarTema()
+    end)
 end
 
 criarRowToggle(sScroll, "Compartilhar Dados",
@@ -1387,7 +1486,8 @@ settingsButton.MouseLeave:Connect(function()
     }):Play()
 end)
 settingsButton.MouseButton1Click:Connect(function()
-    settingsPanel.Visible = not settingsPanel.Visible
+    settingsPanelVisivel = not settingsPanelVisivel
+    settingsPanel.Visible = settingsPanelVisivel
 end)
 
 -- ============================================================
