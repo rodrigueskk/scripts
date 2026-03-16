@@ -1144,6 +1144,7 @@ end)
 
 -- ============================================================
 -- LÓGICA DE COMPARTILHAR DADOS: reaplicar ao entrar no carro
+-- e quando outro jogador entrar no mesmo veículo
 -- ============================================================
 
 local function reaplicarConfigs()
@@ -1155,21 +1156,68 @@ local function reaplicarConfigs()
     applyTireGrip(vehicle, savedConfig.grip)
 end
 
-local character = player.Character or player.CharacterAdded:Wait()
+-- Monitora os assentos do veículo atual para detectar outro jogador entrando
+local seatsMonitorados = {}
+local function monitorarAssentosVeiculo(vehicle)
+    -- Limpa conexões anteriores
+    for _, conn in ipairs(seatsMonitorados) do
+        conn:Disconnect()
+    end
+    seatsMonitorados = {}
 
+    if not vehicle then return end
+
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if obj:IsA("Seat") or obj:IsA("VehicleSeat") then
+            local conn = obj:GetPropertyChangedSignal("Occupant"):Connect(function()
+                if not compartilharDados then return end
+                local ocupante = obj.Occupant
+                -- Só reaplica se for outro jogador (não o próprio) entrando
+                if ocupante then
+                    local ocupantePlayer = Players:GetPlayerFromCharacter(ocupante.Parent)
+                    if ocupantePlayer and ocupantePlayer ~= player then
+                        task.wait(0.1)
+                        reaplicarConfigs()
+                    end
+                end
+            end)
+            table.insert(seatsMonitorados, conn)
+        end
+    end
+end
+
+-- Monitora quando o próprio jogador entra/sai de veículos
+local veiculoAtual = nil
 local function monitorarAssento(char)
     local humanoid = char:WaitForChild("Humanoid", 10)
     if not humanoid then return end
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
-        if compartilharDados and humanoid.SeatPart then
-            task.wait(0.3)
-            reaplicarConfigs()
+        if humanoid.SeatPart then
+            -- Entrou num veículo
+            if compartilharDados then
+                task.wait(0.3)
+                reaplicarConfigs()
+            end
+            -- Começa a monitorar assentos desse veículo
+            task.wait(0.1)
+            local novoVeiculo = getVehicle()
+            if novoVeiculo ~= veiculoAtual then
+                veiculoAtual = novoVeiculo
+                monitorarAssentosVeiculo(novoVeiculo)
+            end
+        else
+            -- Saiu do veículo
+            veiculoAtual = nil
+            monitorarAssentosVeiculo(nil)
         end
     end)
 end
 
+local character = player.Character or player.CharacterAdded:Wait()
 monitorarAssento(character)
 player.CharacterAdded:Connect(function(char)
+    veiculoAtual = nil
+    seatsMonitorados = {}
     monitorarAssento(char)
 end)
 
