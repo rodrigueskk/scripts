@@ -1386,15 +1386,14 @@ createButton(paintSection, "Aplicar Cor", function()
 end)
 
 -- ============================================================
--- SEÇÃO: CARRO SEGUIDOR (segue o jogador como um cachorro)
+-- SEÇÃO: VENHA CÁ (carro segue o jogador como um cachorro)
 -- ============================================================
-local seguidorSection = createSection("Carro Seguidor")
+local seguidorSection = createSection("Venha Ca")
 
 local seguidorAtivo    = false
-local seguidorVehicle  = nil   -- carro que vai seguir
+local seguidorVehicle  = nil
 local seguidorConn     = nil
 
--- Label de status
 local seguidorStatus = Instance.new("TextLabel")
 seguidorStatus.Parent = seguidorSection
 seguidorStatus.BackgroundTransparency = 1
@@ -1405,12 +1404,24 @@ seguidorStatus.TextXAlignment = Enum.TextXAlignment.Left
 seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
 seguidorStatus.Text = "Nenhum carro registrado"
 
-local seguidorBtn = createButton(seguidorSection, "Seguidor: OFF", function() end)
+local seguidorBtn = createButton(seguidorSection, "Venha Ca: OFF", function() end)
 
 local function pararSeguidor()
     seguidorAtivo = false
     if seguidorConn then seguidorConn:Disconnect(); seguidorConn = nil end
-    seguidorBtn.Text = "Seguidor: OFF"
+
+    -- Zera os inputs do VehicleSeat
+    if seguidorVehicle and seguidorVehicle.Parent then
+        local seat = getVehicleSeat(seguidorVehicle)
+        if seat then
+            pcall(function()
+                seat.ThrottleFloat = 0
+                seat.SteerFloat    = 0
+            end)
+        end
+    end
+
+    seguidorBtn.Text = "Venha Ca: OFF"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
         BackgroundColor3 = Color3.fromRGB(32, 32, 36),
         TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1418,19 +1429,15 @@ local function pararSeguidor()
 end
 
 local function iniciarSeguidor()
-    -- Registra o veículo atual como seguidor
-    local vehicle = getVehicle()
-    if not vehicle then
-        -- Tenta usar o último veículo que o jogador usou (buscando no workspace)
-        if seguidorVehicle and seguidorVehicle.Parent then
-            -- usa o registrado
+    if not seguidorVehicle or not seguidorVehicle.Parent then
+        local v = getVehicle()
+        if v then
+            seguidorVehicle = v
+            seguidorStatus.Text = "Carro: " .. v.Name
         else
-            mostrarToast("Entre no carro primeiro para registrá-lo!")
+            mostrarToast("Registre um carro primeiro!")
             return
         end
-    else
-        seguidorVehicle = vehicle
-        seguidorStatus.Text = "Carro: " .. vehicle.Name
     end
 
     local seat = getVehicleSeat(seguidorVehicle)
@@ -1439,22 +1446,22 @@ local function iniciarSeguidor()
         return
     end
 
+    -- Remove o limite de velocidade
+    pcall(function() seat.MaxSpeed = 9999 end)
+
     seguidorAtivo = true
-    seguidorBtn.Text = "Seguidor: ON"
+    seguidorBtn.Text = "Venha Ca: ON"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
         BackgroundColor3 = Color3.fromRGB(0, 180, 80),
         TextColor3 = Color3.fromRGB(255, 255, 255)
     }):Play()
-    mostrarToast("Carro seguidor ativado!")
+    mostrarToast("Venha Ca ativado!")
 
     seguidorConn = RunService.Stepped:Connect(function()
         if not seguidorAtivo then return end
 
-        -- Verifica se o carro ainda existe
         if not seguidorVehicle or not seguidorVehicle.Parent then
-            pararSeguidor()
-            mostrarToast("Carro seguidor desapareceu")
-            return
+            pararSeguidor(); return
         end
 
         local myChar = player.Character
@@ -1465,66 +1472,74 @@ local function iniciarSeguidor()
         local seat2 = getVehicleSeat(seguidorVehicle)
         if not seat2 then return end
 
-        -- Não segue se o jogador estiver no carro
+        -- Não controla se o jogador estiver dentro do carro
         local hum = myChar:FindFirstChildOfClass("Humanoid")
         if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(seguidorVehicle) then
+            pcall(function() seat2.ThrottleFloat = 0; seat2.SteerFloat = 0 end)
             return
         end
 
+        local carCF   = seat2.CFrame
         local carPos  = seat2.Position
         local playerPos = myHRP.Position
-        local dist    = (playerPos - carPos).Magnitude
 
-        -- Mantém uma distância de 8 studs atrás do jogador
-        local DIST_ALVO   = 8
-        local DIST_PARAR  = 6    -- para de se mover se já está perto
-        local VELOCIDADE  = 28   -- studs/s
+        -- Vetor do carro até o jogador no plano horizontal
+        local toPlayer = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
+        local dist = toPlayer.Magnitude
 
-        if dist > DIST_PARAR then
-            -- Direção do carro para o jogador (no plano horizontal)
-            local dir = (playerPos - carPos)
-            dir = Vector3.new(dir.X, 0, dir.Z).Unit
+        local DIST_PARAR = 7   -- distância mínima para parar
 
-            -- Posição alvo: atrás do jogador
-            local alvo = playerPos - dir * DIST_ALVO
-
-            -- Move o carro em direção ao alvo
-            local moveDir = (alvo - carPos)
-            moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-            local moveDist = moveDir.Magnitude
-
-            local vel
-            if moveDist < 1 then
-                vel = Vector3.new(0, seat2.AssemblyLinearVelocity.Y, 0)
-            else
-                local speed = math.min(VELOCIDADE, moveDist * 5)
-                vel = moveDir.Unit * speed
-                vel = Vector3.new(vel.X, seat2.AssemblyLinearVelocity.Y, vel.Z)
-            end
-
-            seat2.AssemblyLinearVelocity = vel
-
-            -- Rotaciona o carro para olhar na direção do movimento
-            if moveDir.Magnitude > 0.5 then
-                local targetCF = CFrame.new(carPos, carPos + Vector3.new(moveDir.X, 0, moveDir.Z))
-                pcall(function()
-                    seat2.CFrame = CFrame.new(seat2.Position) * (targetCF - targetCF.Position)
-                end)
-            end
-        else
-            -- Está próximo: zera velocidade horizontal
-            seat2.AssemblyLinearVelocity = Vector3.new(0, seat2.AssemblyLinearVelocity.Y, 0)
+        if dist < DIST_PARAR then
+            -- Está perto: para o carro
+            pcall(function()
+                seat2.ThrottleFloat = 0
+                seat2.SteerFloat    = 0
+            end)
+            return
         end
+
+        -- Direção frontal do carro (LookVector no plano horizontal)
+        local carForward = Vector3.new(carCF.LookVector.X, 0, carCF.LookVector.Z)
+        if carForward.Magnitude < 0.01 then return end
+        carForward = carForward.Unit
+
+        -- Direção lateral do carro (RightVector)
+        local carRight = Vector3.new(carCF.RightVector.X, 0, carCF.RightVector.Z)
+        if carRight.Magnitude < 0.01 then return end
+        carRight = carRight.Unit
+
+        local dirToPlayer = toPlayer.Unit
+
+        -- Produto escalar com frontal = o quanto o jogador está na frente
+        local dotForward = carForward:Dot(dirToPlayer)
+        -- Produto escalar com lateral = o quanto o jogador está à direita
+        local dotRight   = carRight:Dot(dirToPlayer)
+
+        -- Throttle: acelera se o jogador estiver na frente, freia se atrás
+        local throttle = math.clamp(dotForward * 2, -1, 1)
+
+        -- Steer: vira para o lado do jogador
+        -- Normaliza entre -1 e 1 pelo ângulo lateral
+        local steer = math.clamp(dotRight * 2, -1, 1)
+
+        -- Se estiver indo para trás (jogador atrás), inverte steer
+        if dotForward < -0.3 then
+            steer = -steer
+        end
+
+        pcall(function()
+            seat2.ThrottleFloat = throttle
+            seat2.SteerFloat    = steer
+        end)
     end)
 end
 
--- Botão registrar carro atual
 createButton(seguidorSection, "Registrar Carro Atual", function()
     local vehicle = getVehicle()
     if vehicle then
         seguidorVehicle = vehicle
         seguidorStatus.Text = "Carro: " .. vehicle.Name
-        mostrarToast("Carro registrado: " .. vehicle.Name)
+        mostrarToast("Registrado: " .. vehicle.Name)
     else
         mostrarToast("Entre no carro primeiro!")
     end
