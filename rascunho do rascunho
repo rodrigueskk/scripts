@@ -14,6 +14,8 @@ local velocityMult = 0.025
 local velocityMult2 = 0.150
 local currentSuspension = 0
 local backfireEnabled = true
+local backfireKey = Enum.KeyCode.F -- Tecla padrão
+local isBackfiring = false
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -47,7 +49,7 @@ gui.Parent = playerGui
 
 pcall(function()
     StarterGui:SetCore("SendNotification", {
-        Title = "ComitHub Backfire",
+        Title = "ComitHub Backfire Key",
         Text = "Sistema carregado com sucesso",
         Duration = 4
     })
@@ -122,19 +124,6 @@ end
 
 local function applyLocalSpeed(value) velocityMult = value / 1000 end
 local function applyLocalBrake(value) velocityMult2 = value / 1000 end
-
-local function applyTireGrip(vehicle, gripValue)
-    if not vehicle then return end
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") then
-            local name = string.upper(part.Name)
-            if string.find(name, "WHEEL") or string.find(name, "RODA") or string.find(name, "TIRE") or string.find(name, "PNEU") or tagDaRoda(name) then
-                local currentProps = part.CustomPhysicalProperties or PhysicalProperties.new(part.Material)
-                part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
-            end
-        end
-    end
-end
 
 -- UI
 local openButton = Instance.new("TextButton")
@@ -258,25 +247,6 @@ padding.PaddingBottom = UDim.new(0, 10)
 padding.PaddingLeft = UDim.new(0, 10)
 padding.PaddingRight = UDim.new(0, 10)
 
--- Drag da Janela Principal
-local draggingWindow = false
-local dragStartWindow
-local startPosWindow
-topBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        draggingWindow = true
-        dragStartWindow = input.Position
-        startPosWindow = main.Position
-    end
-end)
-UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingWindow = false end end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingWindow and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStartWindow
-        main.Position = UDim2.new(startPosWindow.X.Scale, startPosWindow.X.Offset + delta.X, startPosWindow.Y.Scale, startPosWindow.Y.Offset + delta.Y)
-    end
-end)
-
 openButton.MouseButton1Click:Connect(function() main.Visible = not main.Visible end)
 closeButton.MouseButton1Click:Connect(function() main.Visible = false end)
 
@@ -312,16 +282,15 @@ local function createSection(text)
     return section
 end
 
-local function createToggle(parent, text, default, callback)
-    local container = Instance.new("TextButton")
+local function createKeybind(parent, text, default, callback)
+    local container = Instance.new("Frame")
     container.Parent = parent
     container.Size = UDim2.new(1, 0, 0, 36)
     container.BackgroundTransparency = 1
-    container.Text = ""
 
     local label = Instance.new("TextLabel")
     label.Parent = container
-    label.Size = UDim2.new(1, -50, 1, 0)
+    label.Size = UDim2.new(1, -100, 1, 0)
     label.BackgroundTransparency = 1
     label.Font = Enum.Font.GothamMedium
     label.TextSize = 14
@@ -329,41 +298,37 @@ local function createToggle(parent, text, default, callback)
     label.Text = text
     label.TextXAlignment = Enum.TextXAlignment.Left
 
-    local bg = Instance.new("Frame")
-    bg.Parent = container
-    bg.Position = UDim2.new(1, -44, 0.5, -11)
-    bg.Size = UDim2.new(0, 40, 0, 22)
-    bg.BackgroundColor3 = default and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(45, 45, 50)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = bg
+    local btn = Instance.new("TextButton")
+    btn.Parent = container
+    btn.Position = UDim2.new(1, -90, 0.5, -13)
+    btn.Size = UDim2.new(0, 80, 0, 26)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = default.Name
+    local bCorner = Instance.new("UICorner")
+    bCorner.CornerRadius = UDim.new(0, 6)
+    bCorner.Parent = btn
 
-    local dot = Instance.new("Frame")
-    dot.Parent = bg
-    dot.Position = default and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8)
-    dot.Size = UDim2.new(0, 16, 0, 16)
-    dot.BackgroundColor3 = default and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(200, 200, 205)
-    local dCorner = Instance.new("UICorner")
-    dCorner.CornerRadius = UDim.new(1, 0)
-    dCorner.Parent = dot
+    local listening = false
+    btn.MouseButton1Click:Connect(function()
+        listening = true
+        btn.Text = "..."
+    end)
 
-    local state = default
-    container.MouseButton1Click:Connect(function()
-        state = not state
-        TweenService:Create(bg, TweenInfo.new(0.2), {BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(45, 45, 50)}):Play()
-        TweenService:Create(dot, TweenInfo.new(0.2), {Position = state and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8)}):Play()
-        dot.BackgroundColor3 = state and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(200, 200, 205)
-        callback(state)
+    UserInputService.InputBegan:Connect(function(input)
+        if listening and input.UserInputType == Enum.UserInputType.Keyboard then
+            listening = false
+            btn.Text = input.KeyCode.Name
+            callback(input.KeyCode)
+        end
     end)
 end
 
 -- Seções
 local backfireSection = createSection("Backfire & Efeitos")
-createToggle(backfireSection, "Backfire Ativado", true, function(v) backfireEnabled = v end)
-
-local suspensionSection = createSection("Suspensão")
--- (Slidres simplificados para brevidade no script v2)
-local perfSection = createSection("Desempenho")
+createKeybind(backfireSection, "Tecla Backfire", backfireKey, function(k) backfireKey = k end)
 
 -- Lógica de Backfire
 local function createFire(part)
@@ -371,10 +336,10 @@ local function createFire(part)
     fire.Name = "BackfireEffect"
     fire.Texture = "rbxassetid://242202417"
     fire.Color = ColorSequence.new(Color3.fromRGB(255, 120, 0), Color3.fromRGB(255, 50, 0))
-    fire.Rate = 100
-    fire.Speed = NumberRange.new(5, 10)
-    fire.Lifetime = NumberRange.new(0.1, 0.3)
-    fire.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)})
+    fire.Rate = 150
+    fire.Speed = NumberRange.new(5, 12)
+    fire.Lifetime = NumberRange.new(0.1, 0.4)
+    fire.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0)})
     fire.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
     fire.Enabled = false
     fire.Parent = part
@@ -385,11 +350,6 @@ local lastVehicle = nil
 local exhaustParticles = {}
 
 RunService.Heartbeat:Connect(function()
-    if not backfireEnabled then 
-        for _, p in pairs(exhaustParticles) do p.Enabled = false end
-        return 
-    end
-
     local vehicle = getVehicle()
     if vehicle ~= lastVehicle then
         exhaustParticles = {}
@@ -406,18 +366,24 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    if vehicle then
-        local seat = getVehicleSeat(vehicle)
-        if seat then
-            local rpm = seat.PlaybackSpeed or (seat.AssemblyLinearVelocity.Magnitude / 10) -- Estimativa se não houver RPM real
-            -- Se o jogo usar um sistema de RPM específico, o usuário pode ajustar aqui.
-            -- Usando magnitude como base para o exemplo de > 5
-            local isBackfiring = seat.AssemblyLinearVelocity.Magnitude > 50 -- Exemplo: velocidade alta simula RPM > 5
-            
-            for _, p in pairs(exhaustParticles) do
-                p.Enabled = isBackfiring
-            end
-        end
+    local active = backfireEnabled and isBackfiring
+    for _, p in pairs(exhaustParticles) do
+        p.Enabled = active
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == backfireKey then
+        isBackfiring = true
+    elseif input.KeyCode == Enum.KeyCode.RightBracket then
+        main.Visible = not main.Visible
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == backfireKey then
+        isBackfiring = false
     end
 end)
 
@@ -428,8 +394,4 @@ RunService.Stepped:Connect(function()
     if not seat then return end
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult) end
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2) end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.KeyCode == Enum.KeyCode.RightBracket then main.Visible = not main.Visible end
 end)
