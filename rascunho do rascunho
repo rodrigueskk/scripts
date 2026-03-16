@@ -12,7 +12,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local configFileName = "ComitHubConfig.json"
 local configData = {
     notificationsEnabled = true,
-    duplicateLockEnabled = false, -- Desativado por padrão conforme solicitado
+    duplicateLockEnabled = false,
     dataSharingEnabled = false,
     primaryColor = {17, 17, 19},
     secondaryColor = {255, 255, 255},
@@ -58,22 +58,6 @@ end
 local alturaMin, alturaMax = 0.05, 8
 local velocityMult, velocityMult2 = 0.025, 0.150
 local currentSuspension = 2.5
-
-local tokensRoda = {
-    FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
-    FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
-    RL = {"RL","REARLEFT","REAR_LEFT","LEFTREAR","LEFT_REAR","BACKLEFT","BACK_LEFT"},
-    RR = {"RR","REARRIGHT","REAR_RIGHT","RIGHTREAR","RIGHT_REAR","BACKRIGHT","BACK_RIGHT"},
-}
-
-local function tagDaRoda(nomeUpper)
-    for tag, lista in pairs(tokensRoda) do
-        for _, t in ipairs(lista) do
-            if nomeUpper:find(t, 1, true) then return tag end
-        end
-    end
-    return nil
-end
 
 local function clamp(n, a, b)
     if n < a then return a end
@@ -163,9 +147,11 @@ openStroke.Thickness = 1.5
 openStroke.Color = Color3.fromRGB(85, 85, 90)
 openStroke.Transparency = 0.25
 
--- Lógica de Arrastar do Botão
+-- Lógica de Arrastar do Botão (CORREÇÃO DEFINITIVA)
 local draggingBtn = false
-local dragStartBtn, startPosBtn, hasMoved
+local dragStartBtn, startPosBtn
+local hasMoved = false
+
 openButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         draggingBtn = true
@@ -174,11 +160,7 @@ openButton.InputBegan:Connect(function(input)
         hasMoved = false
     end
 end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingBtn = false
-    end
-end)
+
 UserInputService.InputChanged:Connect(function(input)
     if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartBtn
@@ -186,6 +168,12 @@ UserInputService.InputChanged:Connect(function(input)
             hasMoved = true
             openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
         end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingBtn = false
     end
 end)
 
@@ -393,7 +381,7 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento
+-- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA DO CLIQUE)
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
@@ -403,11 +391,13 @@ openButton.MouseButton1Click:Connect(function()
         end
     end
 end)
+
 closeButton.MouseButton1Click:Connect(function()
     TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)}):Play()
     task.wait(0.2)
     main.Visible = false
 end)
+
 settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
     if settingsFrame.Visible then
