@@ -1310,106 +1310,79 @@ local botoesVeiculo = {}   -- { [vehicle] = TextButton }
 -- Encontra o valor Trancado dentro de vehicle.Body.Tranca.Trancado
 local function encontrarTrancado(vehicle)
     local body = vehicle:FindFirstChild("Body")
-    if not body then return nil, nil end
+    if not body then return nil, "Body nao encontrado no veiculo" end
     local tranca = body:FindFirstChild("Tranca")
-    if not tranca then return nil, nil end
+    if not tranca then return nil, "Tranca nao encontrada dentro do Body" end
     local val = tranca:FindFirstChild("Trancado")
-    return val, body
-end
-
--- Encontra o ProximityPrompt de tranca dentro do Body
-local function encontrarPrompt(vehicle)
-    local body = vehicle:FindFirstChild("Body")
-    if not body then return nil end
-    -- Busca ProximityPrompt em qualquer descendente do Body
-    for _, obj in ipairs(body:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            return obj
-        end
-    end
-    return nil
+    if not val then return nil, "Trancado nao encontrado dentro de Tranca" end
+    return val, nil
 end
 
 -- Lê o estado atual do Trancado
 local function lerTrancado(val)
     if not val then return nil end
-    if val:IsA("BoolValue") then
-        return val.Value
-    elseif val:IsA("IntValue") or val:IsA("NumberValue") then
-        return val.Value ~= 0
-    elseif val:IsA("StringValue") then
-        return val.Value:lower() == "true"
+    if val:IsA("BoolValue") then return val.Value
+    elseif val:IsA("IntValue") or val:IsA("NumberValue") then return val.Value ~= 0
+    elseif val:IsA("StringValue") then return val.Value:lower() == "true"
     end
     return nil
 end
 
--- Dispara o ProximityPrompt desabilitando o Script de validação temporariamente
-local function acionarPrompt(vehicle, forcarEstado)
-    local prompt = encontrarPrompt(vehicle)
-    if not prompt then return false end
+-- Tenta escrever no valor usando todas as técnicas disponíveis no executor
+local function escreverValor(val, estado)
+    local resultados = {}
 
-    -- Encontra e desabilita o Script de validação dentro do ProximityPrompt
-    local scripts = {}
-    for _, obj in ipairs(prompt:GetChildren()) do
-        if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
-            if obj.Enabled then
-                obj.Enabled = false
-                table.insert(scripts, obj)
-            end
+    -- Técnica 1: atribuição direta simples
+    local ok1, err1 = pcall(function()
+        if val:IsA("BoolValue") then val.Value = estado
+        elseif val:IsA("IntValue") or val:IsA("NumberValue") then val.Value = estado and 1 or 0
+        elseif val:IsA("StringValue") then val.Value = tostring(estado)
         end
-    end
-    -- Também desabilita scripts no pai do prompt (Tranca)
-    if prompt.Parent then
-        for _, obj in ipairs(prompt.Parent:GetChildren()) do
-            if (obj:IsA("Script") or obj:IsA("LocalScript")) and obj.Enabled then
-                obj.Enabled = false
-                table.insert(scripts, obj)
-            end
-        end
+    end)
+    table.insert(resultados, ok1 and "OK:direto" or ("FALHOU:direto(" .. tostring(err1) .. ")"))
+
+    -- Confirma se escreveu
+    local estadoApos = lerTrancado(val)
+    if estadoApos == estado then
+        return true, resultados
     end
 
-    task.wait(0.05)
+    -- Técnica 2: sethiddenproperty (Synapse X / KRNL)
+    local ok2, err2 = pcall(function()
+        sethiddenproperty(val, "Value", estado)
+    end)
+    table.insert(resultados, ok2 and "OK:sethidden" or ("FALHOU:sethidden(" .. tostring(err2) .. ")"))
 
-    -- Tenta escrever diretamente no valor também (tenta os dois juntos)
-    local val, _ = encontrarTrancado(vehicle)
-    if val then
-        pcall(function()
-            if val:IsA("BoolValue") then
-                val.Value = forcarEstado
-            elseif val:IsA("IntValue") or val:IsA("NumberValue") then
-                val.Value = forcarEstado and 1 or 0
-            elseif val:IsA("StringValue") then
-                val.Value = tostring(forcarEstado)
-            end
-        end)
+    estadoApos = lerTrancado(val)
+    if estadoApos == estado then
+        return true, resultados
     end
 
-    -- Aciona o prompt com script desabilitado
-    local ok = false
-    pcall(function() fireproximityprompt(prompt); ok = true end)
-    if not ok then
-        pcall(function()
-            prompt.Triggered:Fire(player)
-            ok = true
-        end)
-    end
-    if not ok then
-        pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(0.05)
-            prompt:InputHoldEnd()
-            ok = true
-        end)
+    -- Técnica 3: rawset
+    local ok3, err3 = pcall(function()
+        rawset(val, "Value", estado)
+    end)
+    table.insert(resultados, ok3 and "OK:rawset" or ("FALHOU:rawset(" .. tostring(err3) .. ")"))
+
+    estadoApos = lerTrancado(val)
+    if estadoApos == estado then
+        return true, resultados
     end
 
-    task.wait(0.1)
+    -- Técnica 4: setrawmetatable
+    local ok4, err4 = pcall(function()
+        local mt = getrawmetatable(val)
+        local oldIndex = mt.__newindex
+        setrawmetatable(val, setmetatable({}, {
+            __newindex = function(t, k, v) rawset(t, k, v) end
+        }))
+        val.Value = estado
+        setrawmetatable(val, mt)
+    end)
+    table.insert(resultados, ok4 and "OK:setrawmeta" or ("FALHOU:setrawmeta(" .. tostring(err4) .. ")"))
 
-    -- Reabilita os scripts
-    for _, s in ipairs(scripts) do
-        pcall(function() s.Enabled = true end)
-    end
-
-    return true
+    estadoApos = lerTrancado(val)
+    return estadoApos == estado, resultados
 end
 
 -- Atualiza o visual do botão de um veículo na lista
@@ -1531,56 +1504,82 @@ local function criarBotaoAcao(parent, texto, corFundo, callback)
     return btn
 end
 
+-- Label de log de resultado
+local trancaLogLabel = Instance.new("TextLabel")
+trancaLogLabel.Parent = trancaSection
+trancaLogLabel.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
+trancaLogLabel.BorderSizePixel = 0
+trancaLogLabel.Size = UDim2.new(1, 0, 0, 50)
+trancaLogLabel.Font = Enum.Font.Gotham
+trancaLogLabel.TextSize = 10
+trancaLogLabel.TextColor3 = Color3.fromRGB(160, 160, 165)
+trancaLogLabel.TextWrapped = true
+trancaLogLabel.TextXAlignment = Enum.TextXAlignment.Left
+trancaLogLabel.TextYAlignment = Enum.TextYAlignment.Top
+trancaLogLabel.Text = "Aguardando acao..."
+
+local tlc = Instance.new("UICorner"); tlc.CornerRadius = UDim.new(0,6); tlc.Parent = trancaLogLabel
+local tlp = Instance.new("UIPadding"); tlp.PaddingLeft = UDim.new(0,6); tlp.PaddingTop = UDim.new(0,4); tlp.Parent = trancaLogLabel
+
+local function setLog(msg, cor)
+    trancaLogLabel.Text = msg
+    trancaLogLabel.TextColor3 = cor or Color3.fromRGB(160,160,165)
+end
+
 criarBotaoAcao(trancaAcaoHolder, "TRANCAR", Color3.fromRGB(180, 40, 40), function()
     if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        mostrarToast("Selecione um veiculo primeiro!")
+        setLog("Erro: nenhum veiculo selecionado.", Color3.fromRGB(220,80,80))
         return
     end
-    local val, _ = encontrarTrancado(veiculoSelecionado)
+    local val, err = encontrarTrancado(veiculoSelecionado)
     if not val then
-        mostrarToast("Body.Tranca.Trancado nao encontrado!")
+        setLog("Erro: " .. (err or "desconhecido"), Color3.fromRGB(220,80,80))
         return
     end
     local estadoAtual = lerTrancado(val)
-    -- Só aciona se não estiver já trancado
     if estadoAtual == true then
-        mostrarToast("Ja esta trancado!")
+        setLog("Aviso: veiculo ja esta trancado. (Trancado = true)", Color3.fromRGB(220,180,0))
         return
     end
-    local ok = acionarPrompt(veiculoSelecionado, true)
-    task.wait(0.2)
-    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
+    setLog("Tentando trancar...", Color3.fromRGB(160,160,165))
+    local ok, resultados = escreverValor(val, true)
+    local logTxt = table.concat(resultados, " | ")
     if ok then
+        setLog("SUCESSO: Trancado = true\n" .. logTxt, Color3.fromRGB(0,200,100))
         mostrarToast("Veiculo trancado!")
     else
-        mostrarToast("Prompt nao encontrado no Body")
+        setLog("FALHOU: valor nao mudou\n" .. logTxt, Color3.fromRGB(220,80,80))
+        mostrarToast("Nao foi possivel trancar")
     end
+    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
 end)
 
 criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), function()
     if not veiculoSelecionado or not veiculoSelecionado.Parent then
-        mostrarToast("Selecione um veiculo primeiro!")
+        setLog("Erro: nenhum veiculo selecionado.", Color3.fromRGB(220,80,80))
         return
     end
-    local val, _ = encontrarTrancado(veiculoSelecionado)
+    local val, err = encontrarTrancado(veiculoSelecionado)
     if not val then
-        mostrarToast("Body.Tranca.Trancado nao encontrado!")
+        setLog("Erro: " .. (err or "desconhecido"), Color3.fromRGB(220,80,80))
         return
     end
     local estadoAtual = lerTrancado(val)
-    -- Só aciona se não estiver já destrancado
     if estadoAtual == false then
-        mostrarToast("Ja esta destrancado!")
+        setLog("Aviso: veiculo ja esta destrancado. (Trancado = false)", Color3.fromRGB(220,180,0))
         return
     end
-    local ok = acionarPrompt(veiculoSelecionado, false)
-    task.wait(0.2)
-    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
+    setLog("Tentando destrancar...", Color3.fromRGB(160,160,165))
+    local ok, resultados = escreverValor(val, false)
+    local logTxt = table.concat(resultados, " | ")
     if ok then
+        setLog("SUCESSO: Trancado = false\n" .. logTxt, Color3.fromRGB(0,200,100))
         mostrarToast("Veiculo destrancado!")
     else
-        mostrarToast("Prompt nao encontrado no Body")
+        setLog("FALHOU: valor nao mudou\n" .. logTxt, Color3.fromRGB(220,80,80))
+        mostrarToast("Nao foi possivel destrancar")
     end
+    atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
 end)
 
 -- Popula a lista ao carregar
