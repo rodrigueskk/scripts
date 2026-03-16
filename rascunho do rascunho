@@ -1257,6 +1257,267 @@ fpsBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
+-- SEÇÃO: TRANCA DE VEÍCULOS
+-- ============================================================
+local trancaSection = createSection("Tranca de Veículos")
+
+-- Label de instrução
+local trancaInfo = Instance.new("TextLabel")
+trancaInfo.Parent = trancaSection
+trancaInfo.BackgroundTransparency = 1
+trancaInfo.Size = UDim2.new(1, 0, 0, 14)
+trancaInfo.Font = Enum.Font.Gotham
+trancaInfo.TextSize = 11
+trancaInfo.TextXAlignment = Enum.TextXAlignment.Left
+trancaInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
+trancaInfo.Text = "Selecione um veículo da lista abaixo:"
+
+-- ScrollingFrame para a lista de veículos
+local trancaListHolder = Instance.new("Frame")
+trancaListHolder.Parent = trancaSection
+trancaListHolder.Size = UDim2.new(1, 0, 0, 120)
+trancaListHolder.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
+trancaListHolder.BorderSizePixel = 0
+local tlhc = Instance.new("UICorner"); tlhc.CornerRadius = UDim.new(0,8); tlhc.Parent = trancaListHolder
+local tlhs = Instance.new("UIStroke"); tlhs.Parent = trancaListHolder
+tlhs.Thickness = 1; tlhs.Color = Color3.fromRGB(60,60,65); tlhs.Transparency = 0.4
+
+local trancaScroll = Instance.new("ScrollingFrame")
+trancaScroll.Parent = trancaListHolder
+trancaScroll.Size = UDim2.new(1, 0, 1, 0)
+trancaScroll.BackgroundTransparency = 1
+trancaScroll.BorderSizePixel = 0
+trancaScroll.ScrollBarThickness = 3
+trancaScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+trancaScroll.CanvasSize = UDim2.new()
+
+local trancaScrollPad = Instance.new("UIPadding")
+trancaScrollPad.Parent = trancaScroll
+trancaScrollPad.PaddingTop    = UDim.new(0, 4)
+trancaScrollPad.PaddingBottom = UDim.new(0, 4)
+trancaScrollPad.PaddingLeft   = UDim.new(0, 6)
+trancaScrollPad.PaddingRight  = UDim.new(0, 6)
+
+local trancaList = Instance.new("UIListLayout")
+trancaList.Parent = trancaScroll
+trancaList.Padding = UDim.new(0, 3)
+trancaList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Veículo selecionado atualmente
+local veiculoSelecionado = nil
+local botoesVeiculo = {}   -- { [vehicle] = TextButton }
+
+-- Encontra o valor Trancado dentro do Body do veículo
+local function encontrarTrancado(vehicle)
+    local body = vehicle:FindFirstChild("Body")
+    if not body then
+        -- Fallback: busca recursivo pelo nome "Trancado"
+        return vehicle:FindFirstChild("Trancado", true)
+    end
+    return body:FindFirstChild("Trancado")
+end
+
+-- Lê o estado atual do Trancado (compatível com Bool, Int e String)
+local function lerTrancado(val)
+    if not val then return nil end
+    if val:IsA("BoolValue") then
+        return val.Value
+    elseif val:IsA("IntValue") or val:IsA("NumberValue") then
+        return val.Value ~= 0
+    elseif val:IsA("StringValue") then
+        return val.Value:lower() == "true"
+    end
+    return nil
+end
+
+-- Escreve o estado no Trancado (compatível com os 3 tipos)
+local function escreverTrancado(val, estado)
+    if not val then return false end
+    local ok = false
+    pcall(function()
+        if val:IsA("BoolValue") then
+            val.Value = estado
+            ok = true
+        elseif val:IsA("IntValue") or val:IsA("NumberValue") then
+            val.Value = estado and 1 or 0
+            ok = true
+        elseif val:IsA("StringValue") then
+            val.Value = estado and "true" or "false"
+            ok = true
+        end
+    end)
+    return ok
+end
+
+-- Atualiza o visual do botão de um veículo na lista
+local function atualizarBotaoVeiculo(vehicle, btn)
+    local val = encontrarTrancado(vehicle)
+    local trancado = lerTrancado(val)
+    local selecionado = veiculoSelecionado == vehicle
+
+    local bgCor
+    if selecionado then
+        bgCor = Color3.fromRGB(40, 60, 90)
+    else
+        bgCor = Color3.fromRGB(26, 26, 30)
+    end
+
+    btn.BackgroundColor3 = bgCor
+
+    local status = ""
+    if trancado == true then
+        status = " 🔒"
+    elseif trancado == false then
+        status = " 🔓"
+    else
+        status = " ?"
+    end
+
+    -- Mostra nome curto + status
+    local nome = vehicle.Name
+    if #nome > 20 then nome = nome:sub(1,20) .. "…" end
+    btn.Text = nome .. status
+end
+
+-- Popula a lista com os veículos encontrados no workspace
+local function popularListaVeiculos()
+    -- Limpa lista anterior
+    for _, b in pairs(botoesVeiculo) do pcall(function() b:Destroy() end) end
+    botoesVeiculo = {}
+    veiculoSelecionado = nil
+
+    local count = 0
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            local seat = obj:FindFirstChildWhichIsA("VehicleSeat", true)
+            if seat then
+                count = count + 1
+                local btn = Instance.new("TextButton")
+                btn.Parent = trancaScroll
+                btn.Size = UDim2.new(1, 0, 0, 28)
+                btn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+                btn.BorderSizePixel = 0
+                btn.Font = Enum.Font.GothamMedium
+                btn.TextSize = 12
+                btn.TextColor3 = Color3.fromRGB(220, 220, 225)
+                btn.TextXAlignment = Enum.TextXAlignment.Left
+                btn.AutoButtonColor = false
+
+                local btnCorner = Instance.new("UICorner")
+                btnCorner.CornerRadius = UDim.new(0, 6)
+                btnCorner.Parent = btn
+
+                local btnPad = Instance.new("UIPadding")
+                btnPad.PaddingLeft = UDim.new(0, 8)
+                btnPad.Parent = btn
+
+                botoesVeiculo[obj] = btn
+                atualizarBotaoVeiculo(obj, btn)
+
+                btn.MouseButton1Click:Connect(function()
+                    veiculoSelecionado = obj
+                    -- Atualiza visual de todos os botões
+                    for v, b in pairs(botoesVeiculo) do
+                        if v.Parent then
+                            atualizarBotaoVeiculo(v, b)
+                        end
+                    end
+                end)
+            end
+        end
+    end
+
+    if count == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Parent = trancaScroll
+        empty.Size = UDim2.new(1, 0, 0, 28)
+        empty.BackgroundTransparency = 1
+        empty.Font = Enum.Font.Gotham
+        empty.TextSize = 11
+        empty.TextColor3 = Color3.fromRGB(100, 100, 105)
+        empty.Text = "Nenhum veículo encontrado"
+    end
+end
+
+-- Botão atualizar lista
+createButton(trancaSection, "↻ Atualizar Lista", function()
+    popularListaVeiculos()
+    mostrarToast("Lista atualizada!")
+end)
+
+-- Botões de ação
+local trancaAcaoHolder = Instance.new("Frame")
+trancaAcaoHolder.Parent = trancaSection
+trancaAcaoHolder.Size = UDim2.new(1, 0, 0, 34)
+trancaAcaoHolder.BackgroundTransparency = 1
+
+local trancaAcaoList = Instance.new("UIListLayout")
+trancaAcaoList.Parent = trancaAcaoHolder
+trancaAcaoList.FillDirection = Enum.FillDirection.Horizontal
+trancaAcaoList.Padding = UDim.new(0, 6)
+trancaAcaoList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function criarBotaoAcao(parent, texto, corFundo, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(0.5, -3, 1, 0)
+    btn.BackgroundColor3 = corFundo
+    btn.BorderSizePixel = 0
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = texto
+    btn.AutoButtonColor = false
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = btn
+    btn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
+        callback()
+    end)
+    return btn
+end
+
+criarBotaoAcao(trancaAcaoHolder, "🔒 Trancar", Color3.fromRGB(180, 40, 40), function()
+    if not veiculoSelecionado or not veiculoSelecionado.Parent then
+        mostrarToast("Selecione um veículo primeiro!")
+        return
+    end
+    local val = encontrarTrancado(veiculoSelecionado)
+    if not val then
+        mostrarToast("'Trancado' não encontrado no Body!")
+        return
+    end
+    local ok = escreverTrancado(val, true)
+    if ok then
+        atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
+        mostrarToast("Veículo trancado!")
+    else
+        mostrarToast("Falha ao trancar")
+    end
+end)
+
+criarBotaoAcao(trancaAcaoHolder, "🔓 Destrancar", Color3.fromRGB(0, 140, 60), function()
+    if not veiculoSelecionado or not veiculoSelecionado.Parent then
+        mostrarToast("Selecione um veículo primeiro!")
+        return
+    end
+    local val = encontrarTrancado(veiculoSelecionado)
+    if not val then
+        mostrarToast("'Trancado' não encontrado no Body!")
+        return
+    end
+    local ok = escreverTrancado(val, false)
+    if ok then
+        atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
+        mostrarToast("Veículo destrancado!")
+    else
+        mostrarToast("Falha ao destrancar")
+    end
+end)
+
+-- Popula a lista ao carregar
+popularListaVeiculos()
+
+-- ============================================================
 -- PAINEL DE CONFIGURAÇÕES (filho do main, sobrepõe o conteúdo)
 -- ============================================================
 
