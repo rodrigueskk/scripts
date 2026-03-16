@@ -18,7 +18,7 @@ local currentBrake = 150
 local currentGrip = 1
 
 -- Configurações salvas (usadas pelo sistema de Compartilhar Dados)
-local compartilharDados = false
+local compartilharDados = true
 local savedConfig = {
     suspension = 2.5,
     speed      = 25,
@@ -250,7 +250,7 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 8)
 closeCorner.Parent = closeButton
 
--- Botão de Configurações (⚙) na topBar
+-- Botão ⚙ ao lado do X
 local settingsButton = Instance.new("TextButton")
 settingsButton.Parent = topBar
 settingsButton.Size = UDim2.new(0, 28, 0, 28)
@@ -258,7 +258,7 @@ settingsButton.Position = UDim2.new(1, -70, 0.5, -14)
 settingsButton.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
 settingsButton.Text = "⚙"
 settingsButton.Font = Enum.Font.GothamBold
-settingsButton.TextSize = 16
+settingsButton.TextSize = 15
 settingsButton.TextColor3 = Color3.fromRGB(180, 180, 185)
 settingsButton.BorderSizePixel = 0
 settingsButton.AutoButtonColor = false
@@ -920,18 +920,18 @@ createButton(trackerSection, "Parar Rastreamento", function()
 end)
 
 -- ============================================================
--- PAINEL DE CONFIGURAÇÕES
+-- PAINEL DE CONFIGURAÇÕES (filho do main, sobrepõe o conteúdo)
 -- ============================================================
 
 local settingsPanel = Instance.new("Frame")
 settingsPanel.Name = "SettingsPanel"
-settingsPanel.Parent = gui
-settingsPanel.Size = UDim2.new(0, 280, 0, 130)
-settingsPanel.Position = UDim2.new(0, 18, 0.5, -215 - 140)  -- acima do main
+settingsPanel.Parent = main
+settingsPanel.Size = UDim2.new(1, 0, 1, 0)
+settingsPanel.Position = UDim2.new(0, 0, 0, 0)
 settingsPanel.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
 settingsPanel.BorderSizePixel = 0
 settingsPanel.Visible = false
-settingsPanel.ZIndex = 20
+settingsPanel.ZIndex = 10
 
 local settingsPanelCorner = Instance.new("UICorner")
 settingsPanelCorner.CornerRadius = UDim.new(0, 14)
@@ -943,11 +943,12 @@ settingsPanelStroke.Thickness = 1.4
 settingsPanelStroke.Color = Color3.fromRGB(80, 80, 86)
 settingsPanelStroke.Transparency = 0.35
 
--- Topbar do painel
+-- Topbar do painel de configurações
 local sTopBar = Instance.new("Frame")
 sTopBar.Parent = settingsPanel
-sTopBar.Size = UDim2.new(1, 0, 0, 40)
+sTopBar.Size = UDim2.new(1, 0, 0, 42)
 sTopBar.BackgroundTransparency = 1
+sTopBar.ZIndex = 11
 
 local sTitleLabel = Instance.new("TextLabel")
 sTitleLabel.Parent = sTopBar
@@ -955,26 +956,28 @@ sTitleLabel.BackgroundTransparency = 1
 sTitleLabel.Position = UDim2.new(0, 14, 0, 0)
 sTitleLabel.Size = UDim2.new(1, -50, 1, 0)
 sTitleLabel.Font = Enum.Font.GothamBold
-sTitleLabel.TextSize = 14
+sTitleLabel.TextSize = 15
 sTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 sTitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 sTitleLabel.Text = "Configurações"
+sTitleLabel.ZIndex = 11
 
 local sCloseBtn = Instance.new("TextButton")
 sCloseBtn.Parent = sTopBar
-sCloseBtn.Size = UDim2.new(0, 24, 0, 24)
-sCloseBtn.Position = UDim2.new(1, -32, 0.5, -12)
+sCloseBtn.Size = UDim2.new(0, 28, 0, 28)
+sCloseBtn.Position = UDim2.new(1, -36, 0.5, -14)
 sCloseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
 sCloseBtn.Text = "X"
 sCloseBtn.Font = Enum.Font.GothamBold
-sCloseBtn.TextSize = 12
+sCloseBtn.TextSize = 14
 sCloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 sCloseBtn.BorderSizePixel = 0
 sCloseBtn.AutoButtonColor = false
+sCloseBtn.ZIndex = 12
 
-local sCloseBtnCorner = Instance.new("UICorner")
-sCloseBtnCorner.CornerRadius = UDim.new(0, 6)
-sCloseBtnCorner.Parent = sCloseBtn
+local sCBCorner = Instance.new("UICorner")
+sCBCorner.CornerRadius = UDim.new(0, 8)
+sCBCorner.Parent = sCloseBtn
 
 sCloseBtn.MouseButton1Click:Connect(function()
     settingsPanel.Visible = false
@@ -983,17 +986,19 @@ end)
 -- Linha separadora
 local sSep = Instance.new("Frame")
 sSep.Parent = settingsPanel
-sSep.Position = UDim2.new(0, 14, 0, 40)
+sSep.Position = UDim2.new(0, 14, 0, 42)
 sSep.Size = UDim2.new(1, -28, 0, 1)
 sSep.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
 sSep.BorderSizePixel = 0
+sSep.ZIndex = 11
 
--- Row: Compartilhar Dados
+-- Área do toggle
 local sRow = Instance.new("Frame")
 sRow.Parent = settingsPanel
-sRow.Position = UDim2.new(0, 14, 0, 52)
-sRow.Size = UDim2.new(1, -28, 0, 52)
+sRow.Position = UDim2.new(0, 14, 0, 56)
+sRow.Size = UDim2.new(1, -28, 0, 60)
 sRow.BackgroundTransparency = 1
+sRow.ZIndex = 11
 
 local sRowLabel = Instance.new("TextLabel")
 sRowLabel.Parent = sRow
@@ -1005,27 +1010,30 @@ sRowLabel.TextSize = 13
 sRowLabel.TextXAlignment = Enum.TextXAlignment.Left
 sRowLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 sRowLabel.Text = "Compartilhar Dados"
+sRowLabel.ZIndex = 11
 
 local sRowDesc = Instance.new("TextLabel")
 sRowDesc.Parent = sRow
 sRowDesc.BackgroundTransparency = 1
-sRowDesc.Position = UDim2.new(0, 0, 0, 22)
-sRowDesc.Size = UDim2.new(1, -60, 0, 28)
+sRowDesc.Position = UDim2.new(0, 0, 0, 24)
+sRowDesc.Size = UDim2.new(1, -60, 0, 34)
 sRowDesc.Font = Enum.Font.Gotham
 sRowDesc.TextSize = 11
 sRowDesc.TextXAlignment = Enum.TextXAlignment.Left
 sRowDesc.TextWrapped = true
 sRowDesc.TextColor3 = Color3.fromRGB(130, 130, 135)
-sRowDesc.Text = "Salva e reaplica suspensão, velocidade, frenagem e grip automaticamente"
+sRowDesc.Text = "Salva e reaplica suspensão, velocidade, frenagem e grip ao entrar em um carro"
+sRowDesc.ZIndex = 11
 
--- Toggle Compartilhar Dados
+-- Toggle switch
 local toggleBg = Instance.new("Frame")
 toggleBg.Parent = sRow
-toggleBg.AnchorPoint = Vector2.new(1, 0.5)
-toggleBg.Position = UDim2.new(1, 0, 0.5, 0)
+toggleBg.AnchorPoint = Vector2.new(1, 0)
+toggleBg.Position = UDim2.new(1, 0, 0, 0)
 toggleBg.Size = UDim2.new(0, 46, 0, 24)
-toggleBg.BackgroundColor3 = Color3.fromRGB(55, 55, 60)
+toggleBg.BackgroundColor3 = Color3.fromRGB(0, 200, 100) -- já começa verde (ativo)
 toggleBg.BorderSizePixel = 0
+toggleBg.ZIndex = 12
 
 local toggleBgCorner = Instance.new("UICorner")
 toggleBgCorner.CornerRadius = UDim.new(1, 0)
@@ -1034,10 +1042,11 @@ toggleBgCorner.Parent = toggleBg
 local toggleKnob = Instance.new("Frame")
 toggleKnob.Parent = toggleBg
 toggleKnob.AnchorPoint = Vector2.new(0, 0.5)
-toggleKnob.Position = UDim2.new(0, 3, 0.5, 0)
+toggleKnob.Position = UDim2.new(0, 25, 0.5, 0) -- já começa na posição ativa
 toggleKnob.Size = UDim2.new(0, 18, 0, 18)
-toggleKnob.BackgroundColor3 = Color3.fromRGB(160, 160, 165)
+toggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 toggleKnob.BorderSizePixel = 0
+toggleKnob.ZIndex = 13
 
 local toggleKnobCorner = Instance.new("UICorner")
 toggleKnobCorner.CornerRadius = UDim.new(1, 0)
@@ -1048,6 +1057,7 @@ toggleButton.Parent = toggleBg
 toggleButton.Size = UDim2.new(1, 0, 1, 0)
 toggleButton.BackgroundTransparency = 1
 toggleButton.Text = ""
+toggleButton.ZIndex = 14
 
 local function setToggle(state)
     compartilharDados = state
@@ -1059,7 +1069,6 @@ local function setToggle(state)
             Position = UDim2.new(0, 25, 0.5, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         }):Play()
-        -- Ao ativar, salva os valores atuais
         savedConfig.suspension = currentSuspension
         savedConfig.speed      = currentSpeed
         savedConfig.brake      = currentBrake
@@ -1079,7 +1088,7 @@ toggleButton.MouseButton1Click:Connect(function()
     setToggle(not compartilharDados)
 end)
 
--- Abre/fecha o painel de configurações
+-- Conecta o botão ⚙ para abrir/fechar o painel interno
 settingsButton.MouseEnter:Connect(function()
     TweenService:Create(settingsButton, TweenInfo.new(0.16), {
         TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1091,18 +1100,7 @@ settingsButton.MouseLeave:Connect(function()
     }):Play()
 end)
 settingsButton.MouseButton1Click:Connect(function()
-    if not settingsPanel.Visible then
-        -- Posiciona sempre acima e alinhado com o main
-        settingsPanel.Position = UDim2.new(
-            main.Position.X.Scale,
-            main.Position.X.Offset,
-            main.Position.Y.Scale,
-            main.Position.Y.Offset - 140
-        )
-        settingsPanel.Visible = true
-    else
-        settingsPanel.Visible = false
-    end
+    settingsPanel.Visible = not settingsPanel.Visible
 end)
 
 -- ============================================================
@@ -1112,16 +1110,12 @@ end)
 local function reaplicarConfigs()
     local vehicle = getVehicle()
     if not vehicle then return end
-    -- Reaplicar suspensão
     applyLocalSuspension(savedConfig.suspension)
-    -- Reaplicar velocidade e frenagem (só atualiza os multiplicadores)
     velocityMult  = savedConfig.speed  / 1000
     velocityMult2 = savedConfig.brake  / 1000
-    -- Reaplicar grip
     applyTireGrip(vehicle, savedConfig.grip)
 end
 
--- Detecta quando o jogador entra em um carro (via SeatPart)
 local character = player.Character or player.CharacterAdded:Wait()
 
 local function monitorarAssento(char)
@@ -1129,7 +1123,7 @@ local function monitorarAssento(char)
     if not humanoid then return end
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
         if compartilharDados and humanoid.SeatPart then
-            task.wait(0.3) -- aguarda o carro carregar
+            task.wait(0.3)
             reaplicarConfigs()
         end
     end)
