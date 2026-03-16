@@ -1018,171 +1018,6 @@ createButton(trackerSection, "Parar Rastreamento", function()
     end)
 end)
 
--- ============================================================
--- SEÇÃO: EDITOR DE DINHEIRO
--- ============================================================
-local moneySection = createSection("Editor de Dinheiro")
-
--- Label de status
-local moneyStatusLabel = Instance.new("TextLabel")
-moneyStatusLabel.Parent = moneySection
-moneyStatusLabel.BackgroundTransparency = 1
-moneyStatusLabel.Size = UDim2.new(1, 0, 0, 16)
-moneyStatusLabel.Font = Enum.Font.Gotham
-moneyStatusLabel.TextSize = 11
-moneyStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-moneyStatusLabel.TextColor3 = Color3.fromRGB(130, 130, 135)
-moneyStatusLabel.Text = "Detectando valor de dinheiro..."
-moneyStatusLabel.TextWrapped = true
-
--- Campo de input do valor
-local moneyInputHolder = Instance.new("Frame")
-moneyInputHolder.Parent = moneySection
-moneyInputHolder.Size = UDim2.new(1, 0, 0, 34)
-moneyInputHolder.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
-moneyInputHolder.BorderSizePixel = 0
-local mihCorner = Instance.new("UICorner"); mihCorner.CornerRadius = UDim.new(0,10); mihCorner.Parent = moneyInputHolder
-local mihStroke = Instance.new("UIStroke"); mihStroke.Parent = moneyInputHolder
-mihStroke.Thickness = 1; mihStroke.Color = Color3.fromRGB(70,70,75); mihStroke.Transparency = 0.45
-
-local moneyInput = Instance.new("TextBox")
-moneyInput.Parent = moneyInputHolder
-moneyInput.Size = UDim2.new(1, -12, 1, 0)
-moneyInput.Position = UDim2.new(0, 6, 0, 0)
-moneyInput.BackgroundTransparency = 1
-moneyInput.Font = Enum.Font.GothamMedium
-moneyInput.TextSize = 13
-moneyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-moneyInput.PlaceholderText = "Digite o valor (ex: 999999)"
-moneyInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
-moneyInput.ClearTextOnFocus = false
-moneyInput.Text = ""
-
--- Nomes comuns de dinheiro para buscar ($ primeiro, por prioridade)
-local MONEY_NAMES = {"$", "Cash", "Money", "Coins", "Gold", "Bucks", "Credits", "Gemas", "Gems", "Points", "Score", "Dinheiro", "Moedas"}
-
--- Tenta encontrar o IntValue/NumberValue de dinheiro no leaderstats
-local function encontrarValorDinheiro()
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then return nil, "leaderstats nao encontrado" end
-
-    -- Prioridade: busca pelo nome exato "$" primeiro
-    local v = leaderstats:FindFirstChild("$")
-    if v and (v:IsA("IntValue") or v:IsA("NumberValue")) then
-        return v, "Encontrado: $ = " .. tostring(v.Value)
-    end
-
-    -- Tenta outros nomes comuns
-    for _, nome in ipairs(MONEY_NAMES) do
-        local vv = leaderstats:FindFirstChild(nome)
-        if vv and (vv:IsA("IntValue") or vv:IsA("NumberValue")) then
-            return vv, "Encontrado: " .. vv.Name .. " = " .. tostring(vv.Value)
-        end
-    end
-
-    -- Fallback: primeiro IntValue/NumberValue encontrado
-    for _, vv in ipairs(leaderstats:GetChildren()) do
-        if vv:IsA("IntValue") or vv:IsA("NumberValue") then
-            return vv, "Encontrado: " .. vv.Name .. " = " .. tostring(vv.Value)
-        end
-    end
-
-    return nil, "Nenhum valor numerico no leaderstats"
-end
-
--- Atualiza o label de status com o valor atual
-local function atualizarStatusDinheiro()
-    local val, msg = encontrarValorDinheiro()
-    moneyStatusLabel.Text = msg
-    if val then
-        moneyStatusLabel.TextColor3 = Color3.fromRGB(0, 200, 100)
-    else
-        moneyStatusLabel.TextColor3 = Color3.fromRGB(200, 80, 80)
-    end
-end
-
-atualizarStatusDinheiro()
-
-createButton(moneySection, "Aplicar Valor", function()
-    local numStr = moneyInput.Text:match("^%s*(-?%d+)%s*$")
-    if not numStr then
-        mostrarToast("Digite um numero valido!")
-        return
-    end
-    local num = tonumber(numStr)
-    if not num then
-        mostrarToast("Numero invalido!")
-        return
-    end
-
-    local val, _ = encontrarValorDinheiro()
-    local aplicado = false
-
-    if val then
-        -- Método 1: atribuição direta
-        pcall(function()
-            val.Value = num
-            aplicado = true
-        end)
-
-        -- Método 2: rawset (executores permitem isso em instâncias)
-        if not aplicado then
-            pcall(function()
-                rawset(val, "Value", num)
-                aplicado = true
-            end)
-        end
-
-        -- Método 3: loop de reaplicação por 2s para resistir a reversões do servidor
-        if aplicado then
-            task.spawn(function()
-                for i = 1, 20 do
-                    task.wait(0.1)
-                    pcall(function() val.Value = num end)
-                end
-            end)
-        end
-    end
-
-    -- Método 4: RemoteEvents comuns com o valor e o nome "$"
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local remoteNomes = {
-        "AddMoney", "GiveMoney", "SetMoney", "AddCash", "GiveCash",
-        "AddCoins", "GiveCoins", "UpdateMoney", "UpdateCash",
-        "MoneyEvent", "CashEvent", "CoinsEvent", "GiveCurrency",
-        "SetCurrency", "UpdateCurrency", "AddCurrency"
-    }
-    for _, rName in ipairs(remoteNomes) do
-        pcall(function()
-            local remote = ReplicatedStorage:FindFirstChild(rName, true)
-            if remote and remote:IsA("RemoteEvent") then
-                -- Tenta com diferentes assinaturas
-                remote:FireServer(num)
-                remote:FireServer("$", num)
-                remote:FireServer(player, num)
-            end
-        end)
-        pcall(function()
-            local remote = ReplicatedStorage:FindFirstChild(rName, true)
-            if remote and remote:IsA("RemoteFunction") then
-                remote:InvokeServer(num)
-                remote:InvokeServer("$", num)
-            end
-        end)
-    end
-
-    atualizarStatusDinheiro()
-
-    if aplicado then
-        mostrarToast("$ definido para: " .. num)
-    else
-        mostrarToast("Tentado — depende do jogo")
-    end
-end)
-
-createButton(moneySection, "Detectar Novamente", function()
-    atualizarStatusDinheiro()
-end)
 local autoFarmAtivo = false
 local autoFarmDir   = 1
 local autoFarmConn  = nil
@@ -1256,6 +1091,247 @@ autoFarmBtn.MouseButton1Click:Connect(function()
         pararAutoFarm()
     else
         iniciarAutoFarm()
+    end
+end)
+
+-- ============================================================
+-- SEÇÃO: UTILITÁRIOS (Anti-Flip, ESP, FPS)
+-- ============================================================
+
+-- ---- Anti-Flip ----
+local antiFlipAtivo = false
+
+local utilSection = createSection("Utilitários")
+
+local antiFlipBtn = createButton(utilSection, "Anti-Flip: OFF", function() end)
+
+local function setAntiFlip(state)
+    antiFlipAtivo = state
+    if state then
+        antiFlipBtn.Text = "Anti-Flip: ON"
+        TweenService:Create(antiFlipBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+    else
+        antiFlipBtn.Text = "Anti-Flip: OFF"
+        TweenService:Create(antiFlipBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+    end
+end
+
+antiFlipBtn.MouseButton1Click:Connect(function()
+    setAntiFlip(not antiFlipAtivo)
+end)
+
+-- ---- ESP de Veículos ----
+local espAtivo       = false
+local espBoxes       = {}   -- { [vehicle] = { box, label } }
+local espCamera      = workspace.CurrentCamera
+
+local ESP_COR        = Color3.fromRGB(255, 80, 80)
+local ESP_COR_PROPRIO = Color3.fromRGB(80, 200, 255)
+
+local espBtn = createButton(utilSection, "ESP Veículos: OFF", function() end)
+
+local function limparESP()
+    for _, data in pairs(espBoxes) do
+        pcall(function()
+            if data.gui then data.gui:Destroy() end
+        end)
+    end
+    espBoxes = {}
+end
+
+local function criarESPBox(vehicle)
+    if espBoxes[vehicle] then return end
+
+    -- Descobre o PrimaryPart ou BasePart principal do veículo
+    local root = vehicle.PrimaryPart
+    if not root then
+        for _, p in ipairs(vehicle:GetDescendants()) do
+            if p:IsA("BasePart") and not p.Anchored then
+                root = p; break
+            end
+        end
+    end
+    if not root then return end
+
+    -- Verifica se é o próprio veículo do jogador
+    local ehProprio = false
+    local myChar = player.Character
+    if myChar then
+        local hum = myChar:FindFirstChildOfClass("Humanoid")
+        if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(vehicle) then
+            ehProprio = true
+        end
+    end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name        = "ESP_" .. vehicle.Name
+    bb.Adornee     = root
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 0, 0, 0)
+    bb.StudsOffsetWorldSpace = Vector3.new(0, 0, 0)
+    bb.Parent      = playerGui
+
+    -- Frame de borda (box)
+    local box = Instance.new("Frame")
+    box.Parent              = bb
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel     = 0
+    box.Size                = UDim2.new(1, 0, 1, 0)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Parent      = box
+    stroke.Thickness   = 2
+    stroke.Color       = ehProprio and ESP_COR_PROPRIO or ESP_COR
+    stroke.Transparency = 0
+
+    -- Label com nome do veículo e distância
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent              = bb
+    lbl.BackgroundTransparency = 1
+    lbl.Size                = UDim2.new(1, 0, 0, 18)
+    lbl.Position            = UDim2.new(0, 0, 1, 4)
+    lbl.Font                = Enum.Font.GothamBold
+    lbl.TextSize            = 12
+    lbl.TextColor3          = ehProprio and ESP_COR_PROPRIO or ESP_COR
+    lbl.TextStrokeColor3    = Color3.new(0,0,0)
+    lbl.TextStrokeTransparency = 0.4
+    lbl.Text                = vehicle.Name
+
+    espBoxes[vehicle] = { gui = bb, root = root, label = lbl, stroke = stroke, proprio = ehProprio }
+end
+
+local function atualizarESP()
+    if not espAtivo then return end
+
+    -- Escaneia todos os modelos no workspace em busca de veículos
+    for _, model in ipairs(workspace:GetDescendants()) do
+        if model:IsA("Model") and not espBoxes[model] then
+            -- Verifica se tem VehicleSeat
+            for _, obj in ipairs(model:GetDescendants()) do
+                if obj:IsA("VehicleSeat") then
+                    criarESPBox(model)
+                    break
+                end
+            end
+        end
+    end
+
+    -- Atualiza tamanho da box baseado no tamanho do modelo e distância
+    local myChar = player.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    for vehicle, data in pairs(espBoxes) do
+        -- Remove se o veículo sumiu
+        if not vehicle.Parent then
+            pcall(function() data.gui:Destroy() end)
+            espBoxes[vehicle] = nil
+        else
+            local root = data.root
+            if root and root.Parent then
+                -- Calcula distância
+                local dist = 9999
+                if myRoot then
+                    dist = math.floor((myRoot.Position - root.Position).Magnitude)
+                end
+
+                -- Calcula tamanho da box em pixels baseado no bounding box do modelo
+                local cf, size = pcall(function()
+                    return model:GetBoundingBox()
+                end)
+
+                local w, h = 80, 40
+                if cf then
+                    -- size é o segundo retorno do GetBoundingBox
+                    local _, modelSize = vehicle:GetBoundingBox()
+                    -- Projeta no espaço da tela para escalar
+                    local screenPos, onScreen = espCamera:WorldToScreenPoint(root.Position)
+                    if onScreen then
+                        local scaleFactor = 1000 / math.max(screenPos.Z, 1)
+                        w = math.clamp(modelSize.X * scaleFactor, 30, 400)
+                        h = math.clamp(modelSize.Y * scaleFactor, 20, 300)
+                    end
+                end
+
+                data.gui.Size = UDim2.new(0, w, 0, h)
+                data.label.Text = vehicle.Name .. " [" .. dist .. "m]"
+            end
+        end
+    end
+end
+
+local function setESP(state)
+    espAtivo = state
+    if state then
+        espBtn.Text = "ESP Veículos: ON"
+        TweenService:Create(espBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        atualizarESP()
+    else
+        espBtn.Text = "ESP Veículos: OFF"
+        TweenService:Create(espBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        limparESP()
+    end
+end
+
+espBtn.MouseButton1Click:Connect(function()
+    setESP(not espAtivo)
+end)
+
+-- ---- Contador de FPS ----
+local fpsLabel = Instance.new("TextLabel")
+fpsLabel.Name              = "FPSCounter"
+fpsLabel.Parent            = gui
+fpsLabel.Size              = UDim2.new(0, 80, 0, 26)
+fpsLabel.Position          = UDim2.new(1, -88, 0, 8)
+fpsLabel.BackgroundColor3  = Color3.fromRGB(17, 17, 19)
+fpsLabel.BackgroundTransparency = 0.3
+fpsLabel.BorderSizePixel   = 0
+fpsLabel.Font              = Enum.Font.GothamBold
+fpsLabel.TextSize          = 13
+fpsLabel.TextColor3        = Color3.fromRGB(0, 220, 100)
+fpsLabel.Text              = "FPS: --"
+fpsLabel.ZIndex            = 5
+fpsLabel.Visible           = false
+
+local fpsCorner = Instance.new("UICorner")
+fpsCorner.CornerRadius = UDim.new(0, 8)
+fpsCorner.Parent = fpsLabel
+
+local fpsStroke = Instance.new("UIStroke")
+fpsStroke.Parent = fpsLabel
+fpsStroke.Thickness = 1
+fpsStroke.Color = Color3.fromRGB(70, 70, 75)
+fpsStroke.Transparency = 0.4
+
+local fpsAtivo = false
+local fpsBtn = createButton(utilSection, "FPS Counter: OFF", function() end)
+
+fpsBtn.MouseButton1Click:Connect(function()
+    fpsAtivo = not fpsAtivo
+    fpsLabel.Visible = fpsAtivo
+    if fpsAtivo then
+        fpsBtn.Text = "FPS Counter: ON"
+        TweenService:Create(fpsBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+    else
+        fpsBtn.Text = "FPS Counter: OFF"
+        TweenService:Create(fpsBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
     end
 end)
 
@@ -1791,7 +1867,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
 end)
 
 -- ============================================================
--- RUNSERVICE: velocidade, frenagem, compartilhar dados, tracker time
+-- RUNSERVICE: velocidade, frenagem, compartilhar dados, tracker time,
+--             anti-flip, esp, fps
 -- ============================================================
 
 -- Cor do time via Teams
@@ -1803,10 +1880,9 @@ local function getTeamColor(targetPlayer)
             return team.TeamColor.Color
         end
     end
-    return Color3.fromRGB(150, 150, 150) -- neutral = cinza
+    return Color3.fromRGB(150, 150, 150)
 end
 
--- Atualiza cor da borda do label do tracker com a cor do time
 local function atualizarCorTime()
     for pName, bb in pairs(trackerLabels) do
         local p = Players:FindFirstChild(pName)
@@ -1815,12 +1891,7 @@ local function atualizarCorTime()
             if bg then
                 local stroke = bg:FindFirstChildOfClass("UIStroke")
                 local nameLabel = bg:FindFirstChildOfClass("TextLabel")
-                local cor
-                if eAlvo(p) then
-                    cor = COR_ALVO
-                else
-                    cor = getTeamColor(p)
-                end
+                local cor = eAlvo(p) and COR_ALVO or getTeamColor(p)
                 if stroke then stroke.Color = cor end
                 if nameLabel then nameLabel.TextColor3 = cor end
             end
@@ -1828,25 +1899,77 @@ local function atualizarCorTime()
     end
 end
 
-RunService.Stepped:Connect(function()
+-- FPS: acumula frames e atualiza a cada 0.5s
+local fpsFrameCount = 0
+local fpsTimer      = 0
+local fpsESPTimer   = 0
+
+RunService.Stepped:Connect(function(_, dt)
     local vehicle = getVehicle()
 
-    -- Atualiza cores dos times no tracker a cada frame
+    -- Tracker: cores de time
     atualizarCorTime()
+
+    -- FPS counter
+    if fpsAtivo then
+        fpsFrameCount = fpsFrameCount + 1
+        fpsTimer = fpsTimer + dt
+        if fpsTimer >= 0.5 then
+            local fps = math.floor(fpsFrameCount / fpsTimer)
+            fpsLabel.Text = "FPS: " .. fps
+            -- Cor baseada no FPS: verde > 50, amarelo > 25, vermelho <= 25
+            if fps > 50 then
+                fpsLabel.TextColor3 = Color3.fromRGB(0, 220, 100)
+            elseif fps > 25 then
+                fpsLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+            else
+                fpsLabel.TextColor3 = Color3.fromRGB(220, 60, 60)
+            end
+            fpsFrameCount = 0
+            fpsTimer      = 0
+        end
+    end
+
+    -- ESP de veículos: atualiza a cada 0.1s para não pesar
+    if espAtivo then
+        fpsESPTimer = fpsESPTimer + dt
+        if fpsESPTimer >= 0.1 then
+            fpsESPTimer = 0
+            atualizarESP()
+        end
+    end
 
     if not vehicle then return end
     local seat = getVehicleSeat(vehicle)
     if not seat then return end
 
+    -- Velocidade (W)
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
         seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
     end
+    -- Frenagem (S)
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
         seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
 
+    -- Compartilhar Dados
     if compartilharDados and outroJogadorNoVeiculo(vehicle) then
         applyLocalSuspension(savedConfig.suspension)
         applyTireGrip(vehicle, savedConfig.grip)
+    end
+
+    -- Anti-Flip: detecta se o carro tombou e o endireita
+    if antiFlipAtivo then
+        local upVec = seat.CFrame.UpVector
+        -- Se o vetor "cima" do carro apontar para baixo (tombado)
+        if upVec.Y < 0.3 then
+            pcall(function()
+                -- Zera velocidade angular e reposiciona em pé
+                seat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                local pos = seat.Position
+                seat.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+                    * CFrame.Angles(0, math.atan2(seat.CFrame.LookVector.X, seat.CFrame.LookVector.Z), 0)
+            end)
+        end
     end
 end)
