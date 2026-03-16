@@ -3,14 +3,6 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local ComitHubRemote = ReplicatedStorage:FindFirstChild("ComitHubRemote")
-if not ComitHubRemote then
-    ComitHubRemote = Instance.new("RemoteEvent")
-    ComitHubRemote.Name = "ComitHubRemote"
-    ComitHubRemote.Parent = ReplicatedStorage
-end
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -42,19 +34,25 @@ local function tagDaRoda(nomeUpper)
     return nil
 end
 
-local function isWheel(part)
-    local name = string.upper(part.Name)
-    if string.find(name, "WHEEL") or string.find(name, "RODA") or string.find(name, "TIRE") or string.find(name, "PNEU") then
-        return true
-    end
-    return tagDaRoda(name) ~= nil
-end
-
 local function clamp(n, a, b)
     if n < a then return a end
     if n > b then return b end
     return n
 end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "ComitHubUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+pcall(function()
+    StarterGui:SetCore("SendNotification", {
+        Title = "ComitHub Executado",
+        Text = "Sistema carregado com sucesso",
+        Duration = 4
+    })
+end)
 
 local function getVehicle()
     local character = player.Character
@@ -76,7 +74,7 @@ local function getVehicleSeat(vehicle)
     return nil
 end
 
--- Lógica de Suspensão
+-- Lógica de Suspensão do script-ibicatu
 local function aplicarAlturaConstraint(c, altura)
     altura = clamp(altura, alturaMin, alturaMax)
     if c:IsA("SpringConstraint") then
@@ -135,7 +133,7 @@ local function applyLocalSuspension(altura)
     end
 end
 
--- Lógica de Velocidade e Frenagem
+-- Lógica de Velocidade e Frenagem (Multiplicadores)
 local function applyLocalSpeed(value)
     velocityMult = value / 1000
 end
@@ -144,80 +142,21 @@ local function applyLocalBrake(value)
     velocityMult2 = value / 1000
 end
 
--- Lógica de Customização de Rodas (CORREÇÃO CRÍTICA DE FÍSICA)
+-- Lógica de Aderência (Grip) Adicionada
 local function applyTireGrip(vehicle, gripValue)
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") and isWheel(part) then
-            local currentProps = part.CustomPhysicalProperties or PhysicalProperties.new(part.Material)
-            part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
-        end
-    end
-end
-
-local function applyWheelSpacer(vehicle, spacerValue)
-    if not vehicle then return end
-    local seat = getVehicleSeat(vehicle)
-    if not seat then return end
-    
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") and isWheel(part) then
-            -- Salva o offset inicial em relação ao assento (para não bugar com o movimento do carro)
-            local originalRelPos = part:GetAttribute("OriginalRelPos")
-            if not originalRelPos then
-                originalRelPos = seat.CFrame:PointToObjectSpace(part.Position)
-                part:SetAttribute("OriginalRelPos", originalRelPos)
-            end
-            
+        if part:IsA("BasePart") then
             local name = string.upper(part.Name)
-            local tag = tagDaRoda(name)
-            local side = 0
-            
-            if tag == "FL" or tag == "RL" or string.find(name, "LEFT") then
-                side = -1
-            elseif tag == "FR" or tag == "RR" or string.find(name, "RIGHT") then
-                side = 1
-            end
-            
-            if side ~= 0 then
-                -- Calcula a nova posição baseada no RightVector do assento para evitar que a roda voe
-                local newRelPos = originalRelPos + Vector3.new(side * spacerValue, 0, 0)
-                part.Position = seat.CFrame:PointToWorldSpace(newRelPos)
+            if string.find(name, "WHEEL") or string.find(name, "RODA") or string.find(name, "TIRE") or string.find(name, "PNEU") or tagDaRoda(name) then
+                local currentProps = part.CustomPhysicalProperties or PhysicalProperties.new(part.Material)
+                part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
             end
         end
     end
 end
 
-local function applyWheelSize(vehicle, sizeValue)
-    if not vehicle then return end
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") and isWheel(part) then
-            local originalSize = part:GetAttribute("OriginalWheelSize")
-            if not originalSize then
-                originalSize = part.Size
-                part:SetAttribute("OriginalWheelSize", originalSize)
-            end
-            -- Muda o tamanho sem soltar as juntas (Joints)
-            part.Size = originalSize * sizeValue
-        end
-    end
-end
-
--- UI (EXATAMENTE IGUAL À ORIGINAL)
-local gui = Instance.new("ScreenGui")
-gui.Name = "ComitHubUI"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = playerGui
-
-pcall(function()
-    StarterGui:SetCore("SendNotification", {
-        Title = "ComitHub Executado",
-        Text = "Sistema carregado com sucesso",
-        Duration = 4
-    })
-end)
-
+-- UI rascunhos para teste
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -611,11 +550,25 @@ createButton(perfSection, "Parar Veículo (P)", function()
     if vehicle then
         local seat = getVehicleSeat(vehicle)
         if seat then
-            seat.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            seat.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            seat.AssemblyLinearVelocity *= 0
+            seat.AssemblyAngularVelocity *= 0
         end
     end
 end)
+
+-- Nova Seção de Customização de Rodas (Grip Adicionado)
+local wheelSection = createSection("Customização de Rodas")
+createSlider(wheelSection, {
+    Title = "Aderência dos Pneus (Grip)",
+    Min = 0, -- Permite diminuir bastante a aderência
+    Max = 5,
+    Step = 0.1,
+    Default = 1,
+    Format = "%.1f",
+    Changed = function(v)
+        applyTireGrip(getVehicle(), v)
+    end
+})
 
 -- Loop de Velocidade e Frenagem (Multiplicadores)
 RunService.Stepped:Connect(function()
@@ -626,59 +579,14 @@ RunService.Stepped:Connect(function()
 
     -- Multiplicador de Velocidade (W)
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
     end
 
     -- Multiplicador de Frenagem (S)
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
+        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
 end)
-
-    -- Nova seção para customização de rodas
-    local wheelCustomizationSection = createSection("Customização de Rodas")
-
-    -- Slider de Aderência dos Pneus
-    createSlider(wheelCustomizationSection, {
-        Title = "Aderência dos Pneus (Drift)",
-        Min = 0.1,
-        Max = 2,
-        Step = 0.1,
-        Default = 1,
-        Format = "%.1f",
-        Changed = function(v)
-            local vehicle = getVehicle()
-            if vehicle then applyTireGrip(vehicle, v) end
-        end
-    })
-
-    -- Slider de Espaçador de Rodas
-    createSlider(wheelCustomizationSection, {
-        Title = "Espaçador de Rodas",
-        Min = 0,
-        Max = 3,
-        Step = 0.1,
-        Default = 0,
-        Format = "%.1f",
-        Changed = function(v)
-            local vehicle = getVehicle()
-            if vehicle then applyWheelSpacer(vehicle, v) end
-        end
-    })
-
-    -- Slider de Tamanho das Rodas
-    createSlider(wheelCustomizationSection, {
-        Title = "Tamanho das Rodas",
-        Min = 0.5,
-        Max = 3,
-        Step = 0.1,
-        Default = 1,
-        Format = "%.1fx",
-        Changed = function(v)
-            local vehicle = getVehicle()
-            if vehicle then applyWheelSize(vehicle, v) end
-        end
-    })
 
 local footer = Instance.new("TextLabel")
 footer.Parent = scrolling
@@ -689,7 +597,7 @@ footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
 footer.Text = "Feito por Rodrigues"
 
--- Tecla para fechar a GUI
+-- Tecla para fechar a GUI (RightBracket como no original)
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
