@@ -1582,12 +1582,30 @@ criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), funct
     atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
 end)
 
+-- Botão: listar RemoteEvents no console
+createButton(trancaSection, "Listar RemoteEvents (ver console)", function()
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    print("========== REMOTEEVENTS / REMOTEFUNCTIONS ==========")
+    local count = 0
+    local function scan(parent, path)
+        for _, obj in ipairs(parent:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("BindableEvent") then
+                count = count + 1
+                print("[" .. obj.ClassName .. "] " .. obj:GetFullName())
+            end
+        end
+    end
+    scan(ReplicatedStorage, "ReplicatedStorage")
+    -- Verifica também no workspace e ServerScriptService (alguns jogos colocam lá)
+    pcall(function() scan(game:GetService("Workspace"), "Workspace") end)
+    pcall(function() scan(game:GetService("Players"), "Players") end)
+    print("Total encontrado: " .. count)
+    print("====================================================")
+    mostrarToast("Veja o console do executor!")
+end)
+
 -- Popula a lista ao carregar
 popularListaVeiculos()
-
--- ============================================================
--- PAINEL DE CONFIGURAÇÕES (filho do main, sobrepõe o conteúdo)
--- ============================================================
 
 -- Helper: salva tema em StringValue no PlayerGui
 local function salvarTema()
