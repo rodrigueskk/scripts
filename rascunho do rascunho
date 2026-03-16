@@ -54,7 +54,7 @@ if playerGui:FindFirstChild("ComitHubUI") then
     return
 end
 
--- Configurações Globais (Originais)
+-- Configurações Globais
 local alturaMin, alturaMax = 0.05, 8
 local velocityMult, velocityMult2 = 0.025, 0.150
 local currentSuspension = 2.5
@@ -77,19 +77,25 @@ local function undo()
     if #history.suspension > 1 then
         table.remove(history.suspension)
         local last = history.suspension[#history.suspension]
-        _G.suspensionSlider.SetValue(last)
+        if _G.suspensionSlider then _G.suspensionSlider.SetValue(last) end
     end
     if #history.speed > 1 then
         table.remove(history.speed)
         local last = history.speed[#history.speed]
-        _G.speedSlider.SetValue(last)
+        if _G.speedSlider then _G.speedSlider.SetValue(last) end
     end
     if #history.brake > 1 then
         table.remove(history.brake)
         local last = history.brake[#history.brake]
-        _G.brakeSlider.SetValue(last)
+        if _G.brakeSlider then _G.brakeSlider.SetValue(last) end
     end
-    notify("Desfeito", "Alteracoes revertidas (Ctrl+Z)")
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Desfeito",
+            Text = "Alteracoes revertidas (Ctrl+Z)",
+            Duration = 3
+        })
+    end)
 end
 
 UserInputService.InputBegan:Connect(function(input, gpe)
@@ -462,7 +468,6 @@ end)
 
 settingsButton.MouseButton1Click:Connect(function()
     settingsFrame.Visible = not settingsFrame.Visible
-    -- REMOVIDA ANIMAÇÃO DE ARRASTAR AO ABRIR CONFIGURAÇÕES
 end)
 
 -- Funções de UI Originais
@@ -553,7 +558,7 @@ local perfSection = createSection("Estatísticas")
 _G.speedSlider = createSlider(perfSection, {Title = "Velocidade", Min = 0, Max = 50, Step = 1, Default = 25, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("speed", v) velocityMult = v/1000 end})
 _G.brakeSlider = createSlider(perfSection, {Title = "Frenagem", Min = 0, Max = 300, Step = 1, Default = 150, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("brake", v) velocityMult2 = v/1000 end})
 
--- 4. SISTEMA DE CHAVES
+-- 4. CATEGORIA CHAVES (NO MENU PRINCIPAL)
 local keysSection = createSection("Chaves")
 local keysScroll = Instance.new("ScrollingFrame", keysSection)
 keysScroll.Size = UDim2.new(1, 0, 0, 120)
