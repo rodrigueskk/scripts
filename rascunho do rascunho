@@ -155,14 +155,6 @@ if RunService:IsClient() then
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.Parent = playerGui
 
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "ComitHub Executado",
-            Text = "Sistema carregado com sucesso",
-            Duration = 4
-        })
-    end)
-
     local openButton = Instance.new("TextButton")
     openButton.Name = "OpenButton"
     openButton.Parent = gui
