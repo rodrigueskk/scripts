@@ -147,27 +147,22 @@ openStroke.Thickness = 1.5
 openStroke.Color = Color3.fromRGB(85, 85, 90)
 openStroke.Transparency = 0.25
 
--- Lógica de Arrastar do Botão (CORREÇÃO DEFINITIVA SEM TEMPO)
+-- Lógica de Arrastar do Botão (SIMPLIFICADA)
 local draggingBtn = false
 local dragStartBtn, startPosBtn
-local hasMoved = false
 
 openButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         draggingBtn = true
         dragStartBtn = input.Position
         startPosBtn = openButton.Position
-        hasMoved = false
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartBtn
-        if delta.Magnitude > 5 then
-            hasMoved = true
-            openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
-        end
+        openButton.Position = UDim2.new(startPosBtn.X.Scale, startPosBtn.X.Offset + delta.X, startPosBtn.Y.Scale, startPosBtn.Y.Offset + delta.Y)
     end
 end)
 
@@ -381,14 +376,12 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA SEM TEMPO)
+-- Eventos de Abertura/Fechamento (SIMPLIFICADO)
 openButton.MouseButton1Click:Connect(function()
-    if not hasMoved then
-        main.Visible = not main.Visible
-        if main.Visible then
-            main.Size = UDim2.new(0, 0, 0, 0)
-            TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 430)}):Play()
-        end
+    main.Visible = not main.Visible
+    if main.Visible then
+        main.Size = UDim2.new(0, 0, 0, 0)
+        TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 430)}):Play()
     end
 end)
 
