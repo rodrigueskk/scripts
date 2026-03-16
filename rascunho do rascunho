@@ -875,12 +875,28 @@ createButton(trackerSection, "Teleportar para Frente", function()
     local nome = playerInput.Text
     local alvo = nil
 
-    if nome and nome ~= "" then
-        alvo = buscarJogador(nome)
-    elseif trackerAlvoNome then
-        -- usa o alvo ativo do tracker
+    -- Prioridade: campo de texto → alvo ativo do tracker
+    local textoBusca = (nome and nome ~= "") and nome or trackerAlvoNome
+
+    if not textoBusca then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Teleporte",
+                Text = "Digite o username ou nome de exibição, ou ative o tracker primeiro",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    -- buscarJogador aceita username E DisplayName
+    alvo = buscarJogador(textoBusca)
+
+    -- fallback: se buscarJogador não achar (ex: trackerAlvoNome já é username exato)
+    if not alvo then
+        local t = textoBusca:lower()
         for _, p in ipairs(Players:GetPlayers()) do
-            if p.Name:lower() == trackerAlvoNome:lower() then
+            if p ~= player and (p.Name:lower() == t or p.DisplayName:lower() == t) then
                 alvo = p
                 break
             end
@@ -891,7 +907,7 @@ createButton(trackerSection, "Teleportar para Frente", function()
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Teleporte",
-                Text = "Digite o username ou nome de exibição, ou ative o tracker primeiro",
+                Text = "Jogador '" .. textoBusca .. "' não encontrado",
                 Duration = 3
             })
         end)
