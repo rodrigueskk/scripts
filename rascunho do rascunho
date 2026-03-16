@@ -193,7 +193,7 @@ openStroke.Thickness = 1.5
 openStroke.Color = Color3.fromRGB(85, 85, 90)
 openStroke.Transparency = 0.25
 
--- Lógica de Arrastar do Botão ABRIR
+-- Lógica de Arrastar do Botão ABRIR (SIMPLIFICADA)
 local draggingBtn = false
 local dragStartBtn, startPosBtn
 local hasMoved = false
@@ -241,7 +241,7 @@ local topBar = Instance.new("Frame", main)
 topBar.Size = UDim2.new(1, 0, 0, 42)
 topBar.BackgroundTransparency = 1
 
--- Lógica de Arrastar do HUB
+-- Lógica de Arrastar do HUB (SIMPLIFICADA)
 local draggingHub = false
 local dragStartHub, startPosHub
 
@@ -449,7 +449,7 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento
+-- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA)
 openButton.MouseButton1Click:Connect(function()
     if not hasMoved then
         main.Visible = not main.Visible
@@ -558,7 +558,7 @@ local perfSection = createSection("Estatísticas")
 _G.speedSlider = createSlider(perfSection, {Title = "Velocidade", Min = 0, Max = 50, Step = 1, Default = 25, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("speed", v) velocityMult = v/1000 end})
 _G.brakeSlider = createSlider(perfSection, {Title = "Frenagem", Min = 0, Max = 300, Step = 1, Default = 150, Format = "%.0f (milésimos)", Changed = function(v) addToHistory("brake", v) velocityMult2 = v/1000 end})
 
--- 4. CATEGORIA CHAVES (NO MENU PRINCIPAL)
+-- 4. CATEGORIA CHAVES
 local keysSection = createSection("Chaves")
 local keysScroll = Instance.new("ScrollingFrame", keysSection)
 keysScroll.Size = UDim2.new(1, 0, 0, 120)
