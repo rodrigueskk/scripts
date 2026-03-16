@@ -16,10 +16,6 @@ local currentSuspension = 0
 local currentSpeed = 25
 local currentBrake = 150
 
--- Nova Variável de Compartilhamento
-local compartilhamentoAtivo = false
-local configuracoesSalvas = {} -- [VehicleModel] = {suspension, speed, brake, grip}
-
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
     FR = {"FR","FRONTRIGHT","FRONT_RIGHT","RIGHTFRONT","RIGHT_FRONT"},
@@ -78,7 +74,7 @@ local function getVehicleSeat(vehicle)
     return nil
 end
 
--- Lógica de Suspensão
+-- Lógica de Suspensão do script-ibicatu
 local function aplicarAlturaConstraint(c, altura)
     altura = clamp(altura, alturaMin, alturaMax)
     if c:IsA("SpringConstraint") then
@@ -99,12 +95,13 @@ local function aplicarAlturaConstraint(c, altura)
     return false
 end
 
-local function applyLocalSuspension(altura, vehicle)
-    local targetVehicle = vehicle or getVehicle()
-    if not targetVehicle then return end
+local function applyLocalSuspension(altura)
+    currentSuspension = altura
+    local vehicle = getVehicle()
+    if not vehicle then return end
 
     local constraints = {}
-    for _, d in ipairs(targetVehicle:GetDescendants()) do
+    for _, d in ipairs(vehicle:GetDescendants()) do
         if d:IsA("SpringConstraint") or d:IsA("PrismaticConstraint") then
             table.insert(constraints, d)
         end
@@ -136,7 +133,7 @@ local function applyLocalSuspension(altura, vehicle)
     end
 end
 
--- Lógica de Velocidade e Frenagem
+-- Lógica de Velocidade e Frenagem (Multiplicadores)
 local function applyLocalSpeed(value)
     velocityMult = value / 1000
 end
@@ -145,6 +142,7 @@ local function applyLocalBrake(value)
     velocityMult2 = value / 1000
 end
 
+-- Lógica de Aderência (Grip) Adicionada
 local function applyTireGrip(vehicle, gripValue)
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
@@ -158,24 +156,7 @@ local function applyTireGrip(vehicle, gripValue)
     end
 end
 
--- Lógica de Salvar/Resetar
-local function salvarConfiguracoes(vehicle)
-    if not vehicle then return end
-    configuracoesSalvas[vehicle] = {
-        suspension = currentSuspension,
-        speed = velocityMult,
-        brake = velocityMult2,
-        grip = 1 -- Valor padrão se não alterado
-    }
-end
-
-local function resetarCarro(vehicle)
-    if not vehicle then return end
-    applyLocalSuspension(2.5, vehicle)
-    applyTireGrip(vehicle, 1)
-end
-
--- UI
+-- UI rascunhos para teste
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -249,22 +230,6 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 8)
 closeCorner.Parent = closeButton
 
--- NOVO: Botão de Configuração ao lado do X
-local settingsButton = Instance.new("TextButton")
-settingsButton.Parent = topBar
-settingsButton.Size = UDim2.new(0, 28, 0, 28)
-settingsButton.Position = UDim2.new(1, -70, 0.5, -14)
-settingsButton.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
-settingsButton.Text = "⚙️" -- Emoji de engrenagem para ser minimalista e funcional
-settingsButton.Font = Enum.Font.GothamBold
-settingsButton.TextSize = 14
-settingsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-settingsButton.BorderSizePixel = 0
-
-local settingsCorner = Instance.new("UICorner")
-settingsCorner.CornerRadius = UDim.new(0, 8)
-settingsCorner.Parent = settingsButton
-
 local scrolling = Instance.new("ScrollingFrame")
 scrolling.Parent = main
 scrolling.Position = UDim2.new(0, 10, 0, 48)
@@ -274,20 +239,6 @@ scrolling.BorderSizePixel = 0
 scrolling.ScrollBarThickness = 4
 scrolling.AutomaticCanvasSize = Enum.AutomaticSize.Y
 scrolling.CanvasSize = UDim2.new()
-
--- NOVO: Frame de Configurações
-local settingsFrame = Instance.new("Frame")
-settingsFrame.Name = "SettingsFrame"
-settingsFrame.Parent = main
-settingsFrame.Position = UDim2.new(0, 10, 0, 48)
-settingsFrame.Size = UDim2.new(1, -20, 1, -58)
-settingsFrame.BackgroundTransparency = 1
-settingsFrame.Visible = false
-
-local settingsList = Instance.new("UIListLayout")
-settingsList.Parent = settingsFrame
-settingsList.Padding = UDim.new(0, 10)
-settingsList.SortOrder = Enum.SortOrder.LayoutOrder
 
 local padding = Instance.new("UIPadding")
 padding.Parent = scrolling
@@ -301,7 +252,6 @@ list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Drag da Janela Principal
 local draggingWindow = false
 local dragStart
 local startPos
@@ -352,18 +302,12 @@ closeButton.MouseButton1Click:Connect(function()
     main.Visible = false
 end)
 
--- Toggle entre Menu Principal e Configurações
-settingsButton.MouseButton1Click:Connect(function()
-    settingsFrame.Visible = not settingsFrame.Visible
-    scrolling.Visible = not settingsFrame.Visible
-end)
-
-local function createSection(parent, text)
+local function createSection(text)
     local section = Instance.new("Frame")
-    section.Parent = parent
+    section.Parent = scrolling
     section.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
     section.BorderSizePixel = 0
-    section.Size = UDim2.new(1, 0, 0, 40)
+    section.Size = UDim2.new(1, 0, 0, 100)
     section.AutomaticSize = Enum.AutomaticSize.Y
 
     local corner = Instance.new("UICorner")
@@ -374,29 +318,29 @@ local function createSection(parent, text)
     stroke.Parent = section
     stroke.Thickness = 1
     stroke.Color = Color3.fromRGB(70, 70, 75)
-    stroke.Transparency = 0.6
+    stroke.Transparency = 0.45
 
-    local layout = Instance.new("UIListLayout")
-    layout.Parent = section
-    layout.Padding = UDim.new(0, 8)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    local sectionPadding = Instance.new("UIPadding")
+    sectionPadding.Parent = section
+    sectionPadding.PaddingTop = UDim.new(0, 10)
+    sectionPadding.PaddingBottom = UDim.new(0, 10)
+    sectionPadding.PaddingLeft = UDim.new(0, 10)
+    sectionPadding.PaddingRight = UDim.new(0, 10)
 
-    local sPadding = Instance.new("UIPadding")
-    sPadding.Parent = section
-    sPadding.PaddingTop = UDim.new(0, 10)
-    sPadding.PaddingBottom = UDim.new(0, 10)
-    sPadding.PaddingLeft = UDim.new(0, 12)
-    sPadding.PaddingRight = UDim.new(0, 12)
+    local sectionList = Instance.new("UIListLayout")
+    sectionList.Parent = section
+    sectionList.Padding = UDim.new(0, 8)
+    sectionList.SortOrder = Enum.SortOrder.LayoutOrder
 
-    local sTitle = Instance.new("TextLabel")
-    sTitle.Parent = section
-    sTitle.BackgroundTransparency = 1
-    sTitle.Size = UDim2.new(1, 0, 0, 18)
-    sTitle.Font = Enum.Font.GothamBold
-    sTitle.TextSize = 14
-    sTitle.TextColor3 = Color3.fromRGB(200, 200, 205)
-    sTitle.Text = text:upper()
-    sTitle.TextXAlignment = Enum.TextXAlignment.Left
+    local label = Instance.new("TextLabel")
+    label.Parent = section
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Text = text
 
     return section
 end
@@ -404,100 +348,124 @@ end
 local function createButton(parent, text, callback)
     local btn = Instance.new("TextButton")
     btn.Parent = parent
-    btn.Size = UDim2.new(1, 0, 0, 36)
-    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 14
+    btn.Size = UDim2.new(1, 0, 0, 34)
+    btn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Text = text
     btn.BorderSizePixel = 0
-    btn.AutoButtonColor = true
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.Text = text
+    btn.AutoButtonColor = false
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = btn
 
-    btn.MouseButton1Click:Connect(callback)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.16), {
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            TextColor3 = Color3.fromRGB(0, 0, 0)
+        }):Play()
+    end)
+
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.16), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        }):Play()
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        if callback then callback() end
+    end)
+
     return btn
 end
 
-local function createSlider(parent, options)
-    local title = options.Title or "Slider"
-    local min = options.Min or 0
-    local max = options.Max or 100
-    local step = options.Step or 1
-    local default = options.Default or min
-    local format = options.Format or "%.0f"
-    local changed = options.Changed or function() end
+local function createSlider(parent, config)
+    local holder = Instance.new("Frame")
+    holder.Parent = parent
+    holder.Size = UDim2.new(1, 0, 0, 62)
+    holder.BackgroundTransparency = 1
 
-    local container = Instance.new("Frame")
-    container.Parent = parent
-    container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 48)
+    local label = Instance.new("TextLabel")
+    label.Parent = holder
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, 18)
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 12
+    label.TextColor3 = Color3.fromRGB(180, 180, 185)
+    label.Text = config.Title
 
-    local sTitle = Instance.new("TextLabel")
-    sTitle.Parent = container
-    sTitle.BackgroundTransparency = 1
-    sTitle.Size = UDim2.new(1, 0, 0, 16)
-    sTitle.Font = Enum.Font.GothamMedium
-    sTitle.TextSize = 13
-    sTitle.TextColor3 = Color3.fromRGB(220, 220, 225)
-    sTitle.Text = title
-    sTitle.TextXAlignment = Enum.TextXAlignment.Left
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Parent = holder
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Size = UDim2.new(1, 0, 0, 18)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextSize = 12
+    valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
 
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Parent = container
-    valLabel.BackgroundTransparency = 1
-    valLabel.Size = UDim2.new(1, 0, 0, 16)
-    valLabel.Font = Enum.Font.GothamMedium
-    valLabel.TextSize = 13
-    valLabel.TextColor3 = Color3.fromRGB(150, 150, 155)
-    valLabel.Text = string.format(format, default)
-    valLabel.TextXAlignment = Enum.TextXAlignment.Right
+    local sliderFrame = Instance.new("Frame")
+    sliderFrame.Parent = holder
+    sliderFrame.Position = UDim2.new(0, 0, 0, 26)
+    sliderFrame.Size = UDim2.new(1, 0, 0, 32)
+    sliderFrame.BackgroundTransparency = 1
 
-    local bg = Instance.new("Frame")
-    bg.Parent = container
-    bg.Position = UDim2.new(0, 0, 0, 26)
-    bg.Size = UDim2.new(1, 0, 0, 6)
-    bg.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-    bg.BorderSizePixel = 0
+    local bar = Instance.new("Frame")
+    bar.Parent = sliderFrame
+    bar.Position = UDim2.new(0, 0, 0.5, -3)
+    bar.Size = UDim2.new(1, 0, 0, 6)
+    bar.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    bar.BorderSizePixel = 0
 
-    local bgCorner = Instance.new("UICorner")
-    bgCorner.CornerRadius = UDim.new(0, 4)
-    bgCorner.Parent = bg
+    local barCorner = Instance.new("UICorner")
+    barCorner.CornerRadius = UDim.new(1, 0)
+    barCorner.Parent = bar
 
     local fill = Instance.new("Frame")
-    fill.Parent = bg
-    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.Parent = bar
+    fill.Size = UDim2.new(0, 0, 1, 0)
     fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     fill.BorderSizePixel = 0
 
     local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 4)
+    fillCorner.CornerRadius = UDim.new(1, 0)
     fillCorner.Parent = fill
 
+    local knob = Instance.new("Frame")
+    knob.Parent = sliderFrame
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(0, 0, 0.5, 0)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+
     local dragging = false
-    local currentValue = default
+    local currentValue = config.Default or 0
 
     local function update(input)
-        local pos = math.clamp((input.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
-        currentValue = min + (max - min) * pos
-        if step > 0 then
-            currentValue = math.floor(currentValue / step + 0.5) * step
+        local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        currentValue = config.Min + (config.Max - config.Min) * pos
+        if config.Step then
+            currentValue = math.floor(currentValue / config.Step + 0.5) * config.Step
         end
-        currentValue = math.clamp(currentValue, min, max)
         
-        fill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
-        valLabel.Text = string.format(format, currentValue)
-        changed(currentValue)
+        local displayPos = (currentValue - config.Min) / (config.Max - config.Min)
+        fill.Size = UDim2.new(displayPos, 0, 1, 0)
+        knob.Position = UDim2.new(displayPos, 0, 0.5, 0)
+        valueLabel.Text = string.format(config.Format or "%.2f", currentValue)
         
-        -- Salva automaticamente se o compartilhamento estiver ativo
-        if compartilhamentoAtivo then
-            salvarConfiguracoes(getVehicle())
+        if config.Changed then
+            config.Changed(currentValue)
         end
     end
 
-    bg.InputBegan:Connect(function(input)
+    sliderFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             update(input)
@@ -517,10 +485,14 @@ local function createSlider(parent, options)
     end)
 
     local function setValue(v)
-        currentValue = math.clamp(v, min, max)
-        fill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
-        valLabel.Text = string.format(format, currentValue)
-        changed(currentValue)
+        currentValue = math.clamp(v, config.Min, config.Max)
+        local displayPos = (currentValue - config.Min) / (config.Max - config.Min)
+        fill.Size = UDim2.new(displayPos, 0, 1, 0)
+        knob.Position = UDim2.new(displayPos, 0, 0.5, 0)
+        valueLabel.Text = string.format(config.Format or "%.2f", currentValue)
+        if config.Changed then
+            config.Changed(currentValue)
+        end
     end
 
     setValue(currentValue)
@@ -531,7 +503,7 @@ local function createSlider(parent, options)
 end
 
 -- Seções da UI
-local suspensionSection = createSection(scrolling, "Suspensão")
+local suspensionSection = createSection("Suspensão")
 local suspensionSlider = createSlider(suspensionSection, {
     Title = "Altura da suspensão",
     Min = 0.05,
@@ -540,7 +512,6 @@ local suspensionSlider = createSlider(suspensionSection, {
     Default = 2.5,
     Format = "%.2f",
     Changed = function(v)
-        currentSuspension = v
         applyLocalSuspension(v)
     end
 })
@@ -549,7 +520,7 @@ createButton(suspensionSection, "Resetar suspensão", function()
     suspensionSlider.SetValue(2.5)
 end)
 
-local perfSection = createSection(scrolling, "Desempenho (Multiplicadores)")
+local perfSection = createSection("Desempenho (Multiplicadores)")
 createSlider(perfSection, {
     Title = "Velocidade (W)",
     Min = 0,
@@ -585,7 +556,8 @@ createButton(perfSection, "Parar Veículo (P)", function()
     end
 end)
 
-local wheelSection = createSection(scrolling, "Customização de Rodas")
+-- Nova Seção de Customização de Rodas (Grip Adicionado)
+local wheelSection = createSection("Customização de Rodas")
 createSlider(wheelSection, {
     Title = "Aderência dos Pneus (Grip)",
     Min = 0,
@@ -598,56 +570,331 @@ createSlider(wheelSection, {
     end
 })
 
--- NOVO: Seção de Configurações
-local configSection = createSection(settingsFrame, "Geral")
-createButton(configSection, "Compartilhamento: DESATIVADO", function()
-    compartilhamentoAtivo = not compartilhamentoAtivo
-    local btn = configSection:FindFirstChildOfClass("TextButton")
-    if btn then
-        btn.Text = "Compartilhamento: " .. (compartilhamentoAtivo and "ATIVADO" or "DESATIVADO")
-    end
-    if compartilhamentoAtivo then
-        salvarConfiguracoes(getVehicle())
-    else
-        resetarCarro(getVehicle())
-    end
-end)
+-- ============================================================
+-- NOVA SEÇÃO: TRACKER DE JOGADORES
+-- ============================================================
 
--- Loop de Monitoramento e Movimento
-local lastVehicle = nil
-RunService.Heartbeat:Connect(function()
-    local vehicle = getVehicle()
-    if vehicle ~= lastVehicle then
-        if lastVehicle and not compartilhamentoAtivo then
-            resetarCarro(lastVehicle)
-        end
-        if vehicle and compartilhamentoAtivo then
-            local saved = configuracoesSalvas[vehicle]
-            if saved then
-                currentSuspension = saved.suspension
-                velocityMult = saved.speed
-                velocityMult2 = saved.brake
-                applyLocalSuspension(currentSuspension, vehicle)
-                applyTireGrip(vehicle, saved.grip)
-                suspensionSlider.SetValue(currentSuspension)
-            else
-                salvarConfiguracoes(vehicle)
+-- Estado do tracker
+local trackerAtivo = false
+local trackerAlvoNome = nil  -- nil = rastrear todos; string = rastrear só um
+local trackerLabels = {}     -- { [playerName] = BillboardGui }
+local trackerConnection = nil
+
+-- Cor do highlight do alvo específico
+local COR_TODOS = Color3.fromRGB(255, 255, 255)
+local COR_ALVO  = Color3.fromRGB(0, 220, 120)
+
+local function criarLabel(targetPlayer)
+    -- Remove label anterior se existir
+    if trackerLabels[targetPlayer.Name] then
+        pcall(function() trackerLabels[targetPlayer.Name]:Destroy() end)
+        trackerLabels[targetPlayer.Name] = nil
+    end
+
+    local character = targetPlayer.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "TrackerLabel_" .. targetPlayer.Name
+    bb.Adornee = hrp
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 140, 0, 36)
+    bb.StudsOffset = Vector3.new(0, 3.2, 0)
+    bb.Parent = playerGui
+
+    local bg = Instance.new("Frame")
+    bg.Parent = bb
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
+    bg.BackgroundTransparency = 0.25
+    bg.BorderSizePixel = 0
+
+    local bgCorner = Instance.new("UICorner")
+    bgCorner.CornerRadius = UDim.new(0, 8)
+    bgCorner.Parent = bg
+
+    local bgStroke = Instance.new("UIStroke")
+    bgStroke.Parent = bg
+    bgStroke.Thickness = 1.2
+    bgStroke.Color = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
+    bgStroke.Transparency = 0.1
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Parent = bg
+    nameLabel.Size = UDim2.new(1, -8, 1, 0)
+    nameLabel.Position = UDim2.new(0, 4, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 13
+    nameLabel.TextColor3 = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
+    nameLabel.Text = "👤 " .. targetPlayer.Name
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+    trackerLabels[targetPlayer.Name] = bb
+end
+
+local function removerLabel(playerName)
+    if trackerLabels[playerName] then
+        pcall(function() trackerLabels[playerName]:Destroy() end)
+        trackerLabels[playerName] = nil
+    end
+end
+
+local function removerTodasLabels()
+    for name, _ in pairs(trackerLabels) do
+        removerLabel(name)
+    end
+end
+
+local function iniciarTracker()
+    trackerAtivo = true
+
+    -- Criar labels para jogadores já na partida
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            if deveRastrear then
+                if p.Character then
+                    criarLabel(p)
+                end
+                -- Quando o personagem spawnar
+                p.CharacterAdded:Connect(function()
+                    if trackerAtivo then
+                        task.wait(0.5)
+                        local deveAinda = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+                        if deveAinda then
+                            criarLabel(p)
+                        end
+                    end
+                end)
+                p.CharacterRemoving:Connect(function()
+                    removerLabel(p.Name)
+                end)
             end
         end
-        lastVehicle = vehicle
     end
+
+    -- Novos jogadores que entram durante o tracker
+    Players.PlayerAdded:Connect(function(p)
+        if trackerAtivo and p ~= player then
+            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            if deveRastrear then
+                p.CharacterAdded:Connect(function()
+                    if trackerAtivo then
+                        task.wait(0.5)
+                        criarLabel(p)
+                    end
+                end)
+                p.CharacterRemoving:Connect(function()
+                    removerLabel(p.Name)
+                end)
+            end
+        end
+    end)
+
+    Players.PlayerRemoving:Connect(function(p)
+        removerLabel(p.Name)
+    end)
+end
+
+local function pararTracker()
+    trackerAtivo = false
+    trackerAlvoNome = nil
+    removerTodasLabels()
+end
+
+-- Seção da UI do Tracker
+local trackerSection = createSection("Tracker de Jogadores")
+
+-- Input para nome do jogador alvo
+local inputHolder = Instance.new("Frame")
+inputHolder.Parent = trackerSection
+inputHolder.Size = UDim2.new(1, 0, 0, 34)
+inputHolder.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+inputHolder.BorderSizePixel = 0
+
+local inputHolderCorner = Instance.new("UICorner")
+inputHolderCorner.CornerRadius = UDim.new(0, 10)
+inputHolderCorner.Parent = inputHolder
+
+local inputHolderStroke = Instance.new("UIStroke")
+inputHolderStroke.Parent = inputHolder
+inputHolderStroke.Thickness = 1
+inputHolderStroke.Color = Color3.fromRGB(70, 70, 75)
+inputHolderStroke.Transparency = 0.45
+
+local playerInput = Instance.new("TextBox")
+playerInput.Parent = inputHolder
+playerInput.Size = UDim2.new(1, -12, 1, 0)
+playerInput.Position = UDim2.new(0, 6, 0, 0)
+playerInput.BackgroundTransparency = 1
+playerInput.Font = Enum.Font.GothamMedium
+playerInput.TextSize = 13
+playerInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+playerInput.PlaceholderText = "Nome do jogador (deixe vazio = todos)"
+playerInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
+playerInput.ClearTextOnFocus = false
+playerInput.Text = ""
+
+-- Botão: Rastrear Todos
+createButton(trackerSection, "Rastrear Todos", function()
+    pararTracker()
+    trackerAlvoNome = nil
+    iniciarTracker()
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Tracker Ativado",
+            Text = "Rastreando todos os jogadores",
+            Duration = 3
+        })
+    end)
 end)
 
+-- Botão: Rastrear Jogador Específico
+createButton(trackerSection, "Rastrear Jogador Específico", function()
+    local nome = playerInput.Text
+    if nome == nil or nome == "" then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Tracker",
+                Text = "Digite o nome do jogador no campo acima",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    -- Verifica se o jogador existe na partida
+    local encontrado = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower() == nome:lower() then
+            encontrado = p
+            break
+        end
+    end
+
+    if not encontrado then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Tracker",
+                Text = "Jogador '" .. nome .. "' não encontrado na partida",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    pararTracker()
+    trackerAlvoNome = encontrado.Name
+    iniciarTracker()
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Tracker Ativado",
+            Text = "Rastreando: " .. encontrado.Name,
+            Duration = 3
+        })
+    end)
+end)
+
+-- Botão: Teleportar para Frente do Jogador
+createButton(trackerSection, "Teleportar para Frente", function()
+    local nome = playerInput.Text
+    local alvoNome = (nome ~= nil and nome ~= "") and nome or trackerAlvoNome
+
+    if not alvoNome then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Teleporte",
+                Text = "Digite o nome do jogador ou ative o tracker primeiro",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    local alvo = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower() == alvoNome:lower() then
+            alvo = p
+            break
+        end
+    end
+
+    if not alvo then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Teleporte",
+                Text = "Jogador não encontrado na partida",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    local alvoChar = alvo.Character
+    if not alvoChar then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "Teleporte",
+                Text = "Personagem do alvo não encontrado",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    local alvoHRP = alvoChar:FindFirstChild("HumanoidRootPart")
+    if not alvoHRP then return end
+
+    local myChar = player.Character
+    if not myChar then return end
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    -- Teleporta 3 studs na frente do alvo
+    local offset = alvoHRP.CFrame.LookVector * 3
+    myHRP.CFrame = CFrame.new(alvoHRP.Position + offset + Vector3.new(0, 0.5, 0))
+
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Teleportado!",
+            Text = "Você foi teleportado para frente de " .. alvo.Name,
+            Duration = 3
+        })
+    end)
+end)
+
+-- Botão: Parar Rastreamento
+createButton(trackerSection, "Parar Rastreamento", function()
+    pararTracker()
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Tracker Desativado",
+            Text = "Rastreamento parado",
+            Duration = 3
+        })
+    end)
+end)
+
+-- ============================================================
+-- FIM DA NOVA SEÇÃO
+-- ============================================================
+
+-- Loop de Velocidade e Frenagem (Multiplicadores)
 RunService.Stepped:Connect(function()
     local vehicle = getVehicle()
     if not vehicle then return end
     local seat = getVehicleSeat(vehicle)
     if not seat then return end
 
+    -- Multiplicador de Velocidade (W)
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
         seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
     end
 
+    -- Multiplicador de Frenagem (S)
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
         seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
@@ -662,6 +909,7 @@ footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
 footer.Text = "Feito por Rodrigues"
 
+-- Tecla para fechar a GUI (RightBracket como no original)
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
