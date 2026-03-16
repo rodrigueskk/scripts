@@ -5,13 +5,13 @@ local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- Garante que o RemoteEvent exista para evitar erros de comunicação
 local ComitHubRemote = ReplicatedStorage:FindFirstChild("ComitHubRemote")
 if not ComitHubRemote then
     ComitHubRemote = Instance.new("RemoteEvent")
     ComitHubRemote.Name = "ComitHubRemote"
     ComitHubRemote.Parent = ReplicatedStorage
 end
-
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -49,20 +49,7 @@ local function clamp(n, a, b)
     return n
 end
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "ComitHubUI"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = playerGui
-
-pcall(function()
-    StarterGui:SetCore("SendNotification", {
-        Title = "ComitHub Executado",
-        Text = "Sistema carregado com sucesso",
-        Duration = 4
-    })
-end)
-
+-- Funções Auxiliares de Veículo
 local function getVehicle()
     local character = player.Character
     if not character then return nil end
@@ -83,7 +70,7 @@ local function getVehicleSeat(vehicle)
     return nil
 end
 
--- Lógica de Suspensão do script-ibicatu
+-- Lógica de Suspensão
 local function aplicarAlturaConstraint(c, altura)
     altura = clamp(altura, alturaMin, alturaMax)
     if c:IsA("SpringConstraint") then
@@ -124,7 +111,7 @@ local function applyLocalSuspension(altura)
     for _, c in ipairs(constraints) do
         local tag = tagDaRoda(string.upper(c.Name))
         if tag then
-            temTag += 1
+            temTag = temTag + 1
             table.insert(porTag[tag], c)
         end
     end
@@ -142,15 +129,7 @@ local function applyLocalSuspension(altura)
     end
 end
 
--- Lógica de Velocidade e Frenagem (Multiplicadores)
-local function applyLocalSpeed(value)
-    velocityMult = value / 1000
-end
-
-local function applyLocalBrake(value)
-    velocityMult2 = value / 1000
-end
-
+-- Lógica de Customização de Rodas
 local function applyTireGrip(vehicle, gripValue)
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
@@ -177,10 +156,10 @@ local function applyWheelSpacer(vehicle, spacerValue)
                     wheelPart:SetAttribute("OriginalWheelOffset", originalOffset)
                 end
                 local direction = Vector3.new(0, 0, 0)
-                if tag == "FL" or tag == "RL" then -- Rodas esquerdas
-                    direction = wheelPart.CFrame.RightVector * -1 -- Mover para a esquerda
-                else -- Rodas direitas
-                    direction = wheelPart.CFrame.RightVector -- Mover para a direita
+                if tag == "FL" or tag == "RL" then
+                    direction = wheelPart.CFrame.RightVector * -1
+                else
+                    direction = wheelPart.CFrame.RightVector
                 end
                 wheelPart.CFrame = CFrame.new(originalOffset) + direction * spacerValue
             end
@@ -202,8 +181,21 @@ local function applyWheelSize(vehicle, sizeValue)
     end
 end
 
+-- Interface do Usuário (UI)
+local gui = Instance.new("ScreenGui")
+gui.Name = "ComitHubUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
 
--- UI rascunhos para teste
+pcall(function()
+    StarterGui:SetCore("SendNotification", {
+        Title = "ComitHub Executado",
+        Text = "Sistema carregado com sucesso",
+        Duration = 4
+    })
+end)
+
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -299,6 +291,7 @@ list.Parent = scrolling
 list.Padding = UDim.new(0, 10)
 list.SortOrder = Enum.SortOrder.LayoutOrder
 
+-- Arrastar Janela
 local draggingWindow = false
 local dragStart
 local startPos
@@ -327,6 +320,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
+-- Interações de Botão
 openButton.MouseEnter:Connect(function()
     TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -349,6 +343,7 @@ closeButton.MouseButton1Click:Connect(function()
     main.Visible = false
 end)
 
+-- Funções de Criação de UI
 local function createSection(text)
     local section = Instance.new("Frame")
     section.Parent = scrolling
@@ -549,7 +544,7 @@ local function createSlider(parent, config)
     }
 end
 
--- Seções da UI
+-- Montagem das Seções
 local suspensionSection = createSection("Suspensão")
 local suspensionSlider = createSlider(suspensionSection, {
     Title = "Altura da suspensão",
@@ -576,7 +571,7 @@ createSlider(perfSection, {
     Default = 25,
     Format = "%.0f (milésimos)",
     Changed = function(v)
-        applyLocalSpeed(v)
+        velocityMult = v / 1000
     end
 })
 
@@ -588,7 +583,7 @@ createSlider(perfSection, {
     Default = 150,
     Format = "%.0f (milésimos)",
     Changed = function(v)
-        applyLocalBrake(v)
+        velocityMult2 = v / 1000
     end
 })
 
@@ -597,220 +592,68 @@ createButton(perfSection, "Parar Veículo (P)", function()
     if vehicle then
         local seat = getVehicleSeat(vehicle)
         if seat then
-            seat.AssemblyLinearVelocity *= 0
-            seat.AssemblyAngularVelocity *= 0
+            seat.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            seat.AssemblyAngularVelocity = Vector3.new(0,0,0)
         end
     end
 end)
 
--- Loop de Velocidade e Frenagem (Multiplicadores)
+-- Loop de Velocidade e Frenagem
 RunService.Stepped:Connect(function()
     local vehicle = getVehicle()
     if not vehicle then return end
     local seat = getVehicleSeat(vehicle)
     if not seat then return end
 
-    -- Multiplicador de Velocidade (W)
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+        seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
     end
 
-    -- Multiplicador de Frenagem (S)
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
+        seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
     end
 end)
 
-    -- Nova seção para customização de rodas
-    local wheelCustomizationSection = createSection("Customização de Rodas")
+local wheelCustomizationSection = createSection("Customização de Rodas")
 
-    -- Slider de Aderência dos Pneus
-    createSlider(wheelCustomizationSection, {
-        Title = "Aderência dos Pneus (Drift)",
-        Min = 0.1,
-        Max = 2,
-        Step = 0.1,
-        Default = 1,
-        Format = "%.1f",
-        Changed = function(v)
-            ComitHubRemote:FireServer("UpdateTireGrip", v)
-        end
-    })
+createSlider(wheelCustomizationSection, {
+    Title = "Aderência dos Pneus (Drift)",
+    Min = 0.1,
+    Max = 2,
+    Step = 0.1,
+    Default = 1,
+    Format = "%.1f",
+    Changed = function(v)
+        local vehicle = getVehicle()
+        if vehicle then applyTireGrip(vehicle, v) end
+    end
+})
 
-    -- Slider de Espaçador de Rodas
-    createSlider(wheelCustomizationSection, {
-        Title = "Espaçador de Rodas",
-        Min = 0,
-        Max = 2,
-        Step = 0.1,
-        Default = 0,
-        Format = "%.1f",
-        Changed = function(v)
-            ComitHubRemote:FireServer("UpdateWheelSpacer", v)
-        end
-    })
+createSlider(wheelCustomizationSection, {
+    Title = "Espaçador de Rodas",
+    Min = 0,
+    Max = 2,
+    Step = 0.1,
+    Default = 0,
+    Format = "%.1f",
+    Changed = function(v)
+        local vehicle = getVehicle()
+        if vehicle then applyWheelSpacer(vehicle, v) end
+    end
+})
 
-    -- Slider de Tamanho das Rodas
-    createSlider(wheelCustomizationSection, {
-        Title = "Tamanho das Rodas",
-        Min = 1,
-        Max = 2,
-        Step = 0.1,
-        Default = 1,
-        Format = "%.1fx",
-        Changed = function(v)
-            ComitHubRemote:FireServer("UpdateWheelSize", v)
-        end
-    })
-
-    -- Lógica do lado do cliente para receber chamadas remotas
-    ComitHubRemote.OnClientEvent:Connect(function(action, vehicle, ...)
-        if action == "UpdateTireGrip" then
-            local gripValue = ...[1]
-            for _, part in ipairs(vehicle:GetDescendants()) do
-                if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
-                    local currentProps = part.CustomPhysicalProperties
-                    if currentProps then
-                        part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
-                    else
-                        part.CustomPhysicalProperties = PhysicalProperties.new(1, gripValue, 1, 1, 1)
-                    end
-                end
-            end
-        elseif action == "UpdateWheelSpacer" then
-            local spacerValue = ...[1]
-            local wheelTags = {"FL", "FR", "RL", "RR"}
-            for _, tag in ipairs(wheelTags) do
-                for _, wheelPart in ipairs(vehicle:GetDescendants()) do
-                    if wheelPart:IsA("Part") and string.find(string.upper(wheelPart.Name), tag) then
-                        local originalOffset = wheelPart:GetAttribute("OriginalWheelOffset")
-                        if not originalOffset then
-                            originalOffset = wheelPart.CFrame.Position
-                            wheelPart:SetAttribute("OriginalWheelOffset", originalOffset)
-                        end
-                        local direction = Vector3.new(0, 0, 0)
-                        if tag == "FL" or tag == "RL" then -- Rodas esquerdas
-                            direction = wheelPart.CFrame.RightVector * -1 -- Mover para a esquerda
-                        else -- Rodas direitas
-                            direction = wheelPart.CFrame.RightVector -- Mover para a direita
-                        end
-                        wheelPart.CFrame = CFrame.new(originalOffset) + direction * spacerValue
-                    end
-                end
-            end
-        elseif action == "UpdateWheelSize" then
-            local sizeValue = ...[1]
-            for _, part in ipairs(vehicle:GetDescendants()) do
-                if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
-                    local originalSize = part:GetAttribute("OriginalWheelSize")
-                    if not originalSize then
-                        originalSize = part.Size
-                        part:SetAttribute("OriginalWheelSize", originalSize)
-                    end
-                    part.Size = originalSize * sizeValue
-                end
-            end
-        end
-    end)
-
-else
-    -- ===========================================================================================
-    -- LÓGICA DO LADO DO SERVIDOR
-    -- ===========================================================================================
-
-    ComitHubRemote.OnServerEvent:Connect(function(player, action, ...)
-        local vehicle = getVehicle(player)
-        if not vehicle then return end
-
-        if action == "UpdateTireGrip" then
-            local gripValue = ...[1]
-            for _, part in ipairs(vehicle:GetDescendants()) do
-                if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
-                    local currentProps = part.CustomPhysicalProperties
-                    if currentProps then
-                        part.CustomPhysicalProperties = PhysicalProperties.new(currentProps.Density, gripValue, currentProps.Friction, currentProps.FrictionWeight, currentProps.ElasticityWeight)
-                    else
-                        part.CustomPhysicalProperties = PhysicalProperties.new(1, gripValue, 1, 1, 1) -- Default if no custom props
-                    end
-                end
-            end
-            ComitHubRemote:FireAllClients("UpdateTireGrip", vehicle, gripValue)
-        elseif action == "UpdateWheelSpacer" then
-            local spacerValue = ...[1]
-            local wheelTags = {"FL", "FR", "RL", "RR"}
-            for _, tag in ipairs(wheelTags) do
-                for _, wheelPart in ipairs(vehicle:GetDescendants()) do
-                    if wheelPart:IsA("Part") and string.find(string.upper(wheelPart.Name), tag) then
-                        local originalOffset = wheelPart:GetAttribute("OriginalWheelOffset")
-                        if not originalOffset then
-                            originalOffset = wheelPart.CFrame.Position
-                            wheelPart:SetAttribute("OriginalWheelOffset", originalOffset)
-                        end
-                        local direction = Vector3.new(0, 0, 0)
-                        if tag == "FL" or tag == "RL" then -- Rodas esquerdas
-                            direction = wheelPart.CFrame.RightVector * -1 -- Mover para a esquerda
-                        else -- Rodas direitas
-                            direction = wheelPart.CFrame.RightVector -- Mover para a direita
-                        end
-                        wheelPart.CFrame = CFrame.new(originalOffset) + direction * spacerValue
-                    end
-                end
-            end
-            ComitHubRemote:FireAllClients("UpdateWheelSpacer", vehicle, spacerValue)
-        elseif action == "UpdateWheelSize" then
-            local sizeValue = ...[1]
-            for _, part in ipairs(vehicle:GetDescendants()) do
-                if part:IsA("Part") and string.find(string.upper(part.Name), "WHEEL") then
-                    local originalSize = part:GetAttribute("OriginalWheelSize")
-                    if not originalSize then
-                        originalSize = part.Size
-                        part:SetAttribute("OriginalWheelSize", originalSize)
-                    end
-                    part.Size = originalSize * sizeValue
-                end
-            end
-            ComitHubRemote:FireAllClients("UpdateWheelSize", vehicle, sizeValue)
-        end
-    end)
-
-    -- Lógica do lado do cliente para receber chamadas remotas
-    ComitHubRemote.OnClientEvent:Connect(function(action, vehicle, ...)
-        if action == "UpdateTireGrip" then
-            local gripValue = ...[1]
-            applyTireGrip(vehicle, gripValue)
-        elseif action == "UpdateWheelSpacer" then
-            local spacerValue = ...[1]
-            applyWheelSpacer(vehicle, spacerValue)
-        elseif action == "UpdateWheelSize" then
-            local sizeValue = ...[1]
-            applyWheelSize(vehicle, sizeValue)
-        end
-    end)
-
-else
-    -- ===========================================================================================
-    -- LÓGICA DO LADO DO SERVIDOR
-    -- ===========================================================================================
-
-    ComitHubRemote.OnServerEvent:Connect(function(player, action, ...)
-        local vehicle = getVehicle(player)
-        if not vehicle then return end
-
-        if action == "UpdateTireGrip" then
-            local gripValue = ...[1]
-            -- Apply to all clients
-            ComitHubRemote:FireAllClients("UpdateTireGrip", vehicle, gripValue)
-        elseif action == "UpdateWheelSpacer" then
-            local spacerValue = ...[1]
-            -- Apply to all clients
-            ComitHubRemote:FireAllClients("UpdateWheelSpacer", vehicle, spacerValue)
-        elseif action == "UpdateWheelSize" then
-            local sizeValue = ...[1]
-            -- Apply to all clients
-            ComitHubRemote:FireAllClients("UpdateWheelSize", vehicle, sizeValue)
-        end
-    end)
-end
+createSlider(wheelCustomizationSection, {
+    Title = "Tamanho das Rodas",
+    Min = 1,
+    Max = 2,
+    Step = 0.1,
+    Default = 1,
+    Format = "%.1fx",
+    Changed = function(v)
+        local vehicle = getVehicle()
+        if vehicle then applyWheelSize(vehicle, v) end
+    end
+})
 
 local footer = Instance.new("TextLabel")
 footer.Parent = scrolling
@@ -819,9 +662,9 @@ footer.Size = UDim2.new(1, 0, 0, 24)
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
-footer.Text = "Feito por Rodrigues"
+footer.Text = "Feito por Rodrigues (Corrigido)"
 
--- Tecla para fechar a GUI (RightBracket como no original)
+-- Atalho de Teclado
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
