@@ -1019,8 +1019,170 @@ createButton(trackerSection, "Parar Rastreamento", function()
 end)
 
 -- ============================================================
--- SEÇÃO: AUTOFARM
+-- SEÇÃO: EDITOR DE DINHEIRO
 -- ============================================================
+local moneySection = createSection("Editor de Dinheiro")
+
+-- Label de status
+local moneyStatusLabel = Instance.new("TextLabel")
+moneyStatusLabel.Parent = moneySection
+moneyStatusLabel.BackgroundTransparency = 1
+moneyStatusLabel.Size = UDim2.new(1, 0, 0, 16)
+moneyStatusLabel.Font = Enum.Font.Gotham
+moneyStatusLabel.TextSize = 11
+moneyStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+moneyStatusLabel.TextColor3 = Color3.fromRGB(130, 130, 135)
+moneyStatusLabel.Text = "Detectando valor de dinheiro..."
+moneyStatusLabel.TextWrapped = true
+
+-- Campo de input do valor
+local moneyInputHolder = Instance.new("Frame")
+moneyInputHolder.Parent = moneySection
+moneyInputHolder.Size = UDim2.new(1, 0, 0, 34)
+moneyInputHolder.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+moneyInputHolder.BorderSizePixel = 0
+local mihCorner = Instance.new("UICorner"); mihCorner.CornerRadius = UDim.new(0,10); mihCorner.Parent = moneyInputHolder
+local mihStroke = Instance.new("UIStroke"); mihStroke.Parent = moneyInputHolder
+mihStroke.Thickness = 1; mihStroke.Color = Color3.fromRGB(70,70,75); mihStroke.Transparency = 0.45
+
+local moneyInput = Instance.new("TextBox")
+moneyInput.Parent = moneyInputHolder
+moneyInput.Size = UDim2.new(1, -12, 1, 0)
+moneyInput.Position = UDim2.new(0, 6, 0, 0)
+moneyInput.BackgroundTransparency = 1
+moneyInput.Font = Enum.Font.GothamMedium
+moneyInput.TextSize = 13
+moneyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+moneyInput.PlaceholderText = "Digite o valor (ex: 999999)"
+moneyInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
+moneyInput.ClearTextOnFocus = false
+moneyInput.Text = ""
+
+-- Nomes comuns de dinheiro para buscar ($ primeiro, por prioridade)
+local MONEY_NAMES = {"$", "Cash", "Money", "Coins", "Gold", "Bucks", "Credits", "Gemas", "Gems", "Points", "Score", "Dinheiro", "Moedas"}
+
+-- Tenta encontrar o IntValue/NumberValue de dinheiro no leaderstats
+local function encontrarValorDinheiro()
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if not leaderstats then return nil, "leaderstats nao encontrado" end
+
+    -- Prioridade: busca pelo nome exato "$" primeiro
+    local v = leaderstats:FindFirstChild("$")
+    if v and (v:IsA("IntValue") or v:IsA("NumberValue")) then
+        return v, "Encontrado: $ = " .. tostring(v.Value)
+    end
+
+    -- Tenta outros nomes comuns
+    for _, nome in ipairs(MONEY_NAMES) do
+        local vv = leaderstats:FindFirstChild(nome)
+        if vv and (vv:IsA("IntValue") or vv:IsA("NumberValue")) then
+            return vv, "Encontrado: " .. vv.Name .. " = " .. tostring(vv.Value)
+        end
+    end
+
+    -- Fallback: primeiro IntValue/NumberValue encontrado
+    for _, vv in ipairs(leaderstats:GetChildren()) do
+        if vv:IsA("IntValue") or vv:IsA("NumberValue") then
+            return vv, "Encontrado: " .. vv.Name .. " = " .. tostring(vv.Value)
+        end
+    end
+
+    return nil, "Nenhum valor numerico no leaderstats"
+end
+
+-- Atualiza o label de status com o valor atual
+local function atualizarStatusDinheiro()
+    local val, msg = encontrarValorDinheiro()
+    moneyStatusLabel.Text = msg
+    if val then
+        moneyStatusLabel.TextColor3 = Color3.fromRGB(0, 200, 100)
+    else
+        moneyStatusLabel.TextColor3 = Color3.fromRGB(200, 80, 80)
+    end
+end
+
+atualizarStatusDinheiro()
+
+createButton(moneySection, "Aplicar Valor", function()
+    local numStr = moneyInput.Text:match("^%s*(-?%d+)%s*$")
+    if not numStr then
+        mostrarToast("Digite um numero valido!")
+        return
+    end
+    local num = tonumber(numStr)
+    if not num then
+        mostrarToast("Numero invalido!")
+        return
+    end
+
+    local val, _ = encontrarValorDinheiro()
+    local aplicado = false
+
+    if val then
+        -- Método 1: atribuição direta
+        pcall(function()
+            val.Value = num
+            aplicado = true
+        end)
+
+        -- Método 2: rawset (executores permitem isso em instâncias)
+        if not aplicado then
+            pcall(function()
+                rawset(val, "Value", num)
+                aplicado = true
+            end)
+        end
+
+        -- Método 3: loop de reaplicação por 2s para resistir a reversões do servidor
+        if aplicado then
+            task.spawn(function()
+                for i = 1, 20 do
+                    task.wait(0.1)
+                    pcall(function() val.Value = num end)
+                end
+            end)
+        end
+    end
+
+    -- Método 4: RemoteEvents comuns com o valor e o nome "$"
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local remoteNomes = {
+        "AddMoney", "GiveMoney", "SetMoney", "AddCash", "GiveCash",
+        "AddCoins", "GiveCoins", "UpdateMoney", "UpdateCash",
+        "MoneyEvent", "CashEvent", "CoinsEvent", "GiveCurrency",
+        "SetCurrency", "UpdateCurrency", "AddCurrency"
+    }
+    for _, rName in ipairs(remoteNomes) do
+        pcall(function()
+            local remote = ReplicatedStorage:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                -- Tenta com diferentes assinaturas
+                remote:FireServer(num)
+                remote:FireServer("$", num)
+                remote:FireServer(player, num)
+            end
+        end)
+        pcall(function()
+            local remote = ReplicatedStorage:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteFunction") then
+                remote:InvokeServer(num)
+                remote:InvokeServer("$", num)
+            end
+        end)
+    end
+
+    atualizarStatusDinheiro()
+
+    if aplicado then
+        mostrarToast("$ definido para: " .. num)
+    else
+        mostrarToast("Tentado — depende do jogo")
+    end
+end)
+
+createButton(moneySection, "Detectar Novamente", function()
+    atualizarStatusDinheiro()
+end)
 local autoFarmAtivo = false
 local autoFarmDir   = 1
 local autoFarmConn  = nil
