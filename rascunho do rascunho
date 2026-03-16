@@ -147,9 +147,10 @@ openStroke.Thickness = 1.5
 openStroke.Color = Color3.fromRGB(85, 85, 90)
 openStroke.Transparency = 0.25
 
--- Lógica de Arrastar do Botão (CORREÇÃO DEFINITIVA)
+-- Lógica de Arrastar do Botão (CORREÇÃO DEFINITIVA USANDO TEMPO)
 local draggingBtn = false
 local dragStartBtn, startPosBtn
+local startTime = 0
 local hasMoved = false
 
 openButton.InputBegan:Connect(function(input)
@@ -157,6 +158,7 @@ openButton.InputBegan:Connect(function(input)
         draggingBtn = true
         dragStartBtn = input.Position
         startPosBtn = openButton.Position
+        startTime = tick()
         hasMoved = false
     end
 end)
@@ -381,9 +383,10 @@ createColorPicker("Cor Primaria (Fundo)", "primaryColor", function(c) main.Backg
 createColorPicker("Cor Secundaria (Texto)", "secondaryColor", function(c) title.TextColor3 = c end)
 createColorPicker("Cor Terciaria (Botoes)", "tertiaryColor", function(c) closeButton.BackgroundColor3 = c settingsButton.BackgroundColor3 = c end)
 
--- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA DO CLIQUE)
-openButton.MouseButton1Click:Connect(function()
-    if not hasMoved then
+-- Eventos de Abertura/Fechamento (CORREÇÃO DEFINITIVA USANDO TEMPO)
+openButton.MouseButton1Up:Connect(function()
+    local duration = tick() - startTime
+    if duration < 0.2 and not hasMoved then
         main.Visible = not main.Visible
         if main.Visible then
             main.Size = UDim2.new(0, 0, 0, 0)
