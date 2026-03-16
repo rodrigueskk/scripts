@@ -15,6 +15,43 @@ local velocityMult2 = 0.150
 local currentSuspension = 0
 local currentSpeed = 25
 local currentBrake = 150
+local currentGrip = 1
+
+-- Configurações salvas (usadas pelo sistema de Compartilhar Dados)
+local compartilharDados = true
+local savedConfig = {
+    suspension = 2.5,
+    speed      = 25,
+    brake      = 150,
+    grip       = 1,
+}
+
+-- Tema de cores (salvo localmente)
+local tema = {
+    primaria    = Color3.fromRGB(17,  17,  19),   -- fundo geral
+    secundaria  = Color3.fromRGB(255, 255, 255),  -- hover botão abrir
+    terciaria   = Color3.fromRGB(255, 255, 255),  -- textos
+    quaternaria = Color3.fromRGB(255, 255, 255),  -- sliders (knob/fill)
+}
+
+-- Carrega tema salvo
+local ok, saved = pcall(function()
+    return game:GetService("HttpService"):JSONDecode(
+        game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("__ComitHubTema") and
+        game:GetService("Players").LocalPlayer.PlayerGui.__ComitHubTema.Value or "{}"
+    )
+end)
+if ok and saved and saved.p then
+    tema.primaria    = Color3.fromRGB(saved.p[1],  saved.p[2],  saved.p[3])
+    tema.secundaria  = Color3.fromRGB(saved.s[1],  saved.s[2],  saved.s[3])
+    tema.terciaria   = Color3.fromRGB(saved.t[1],  saved.t[2],  saved.t[3])
+    tema.quaternaria = Color3.fromRGB(saved.q[1],  saved.q[2],  saved.q[3])
+end
+
+-- Estado das rodas (não usadas mais, mantidas para compatibilidade)
+local currentWheelSize = 1
+local currentSpacer    = 0
+local currentCamber    = 0
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -97,6 +134,7 @@ end
 
 local function applyLocalSuspension(altura)
     currentSuspension = altura
+    if compartilharDados then savedConfig.suspension = altura end
     local vehicle = getVehicle()
     if not vehicle then return end
 
@@ -136,14 +174,17 @@ end
 -- Lógica de Velocidade e Frenagem (Multiplicadores)
 local function applyLocalSpeed(value)
     velocityMult = value / 1000
+    if compartilharDados then savedConfig.speed = value end
 end
 
 local function applyLocalBrake(value)
     velocityMult2 = value / 1000
+    if compartilharDados then savedConfig.brake = value end
 end
 
 -- Lógica de Aderência (Grip) Adicionada
 local function applyTireGrip(vehicle, gripValue)
+    if compartilharDados then savedConfig.grip = gripValue end
     if not vehicle then return end
     for _, part in ipairs(vehicle:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -155,8 +196,14 @@ local function applyTireGrip(vehicle, gripValue)
         end
     end
 end
+-- Flag para bloquear interações do hub quando configurações estão abertas
+local settingsPanelVisivel = false
 
--- UI rascunhos para teste
+-- Listas para aplicar tema
+local allSections    = {}   -- frames de seção (fundo)
+local allSliderKnobs = {}
+local allSliderFills = {}
+
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -188,6 +235,7 @@ main.Position = UDim2.new(0, 18, 0.5, -215)
 main.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
 main.BorderSizePixel = 0
 main.Visible = false
+main.ZIndex = 1
 
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 14)
@@ -208,12 +256,13 @@ local title = Instance.new("TextLabel")
 title.Parent = topBar
 title.BackgroundTransparency = 1
 title.Position = UDim2.new(0, 14, 0, 0)
-title.Size = UDim2.new(1, -56, 1, 0)
+title.Size = UDim2.new(1, -90, 1, 0)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Text = "ComitHub"
+title.ZIndex = 2
 
 local closeButton = Instance.new("TextButton")
 closeButton.Parent = topBar
@@ -225,10 +274,29 @@ closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 14
 closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.BorderSizePixel = 0
+closeButton.ZIndex = 5
 
 local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 8)
 closeCorner.Parent = closeButton
+
+-- Botão ⚙ ao lado do X
+local settingsButton = Instance.new("TextButton")
+settingsButton.Parent = topBar
+settingsButton.Size = UDim2.new(0, 28, 0, 28)
+settingsButton.Position = UDim2.new(1, -70, 0.5, -14)
+settingsButton.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
+settingsButton.Text = "⚙"
+settingsButton.Font = Enum.Font.GothamBold
+settingsButton.TextSize = 15
+settingsButton.TextColor3 = Color3.fromRGB(180, 180, 185)
+settingsButton.BorderSizePixel = 0
+settingsButton.AutoButtonColor = false
+settingsButton.ZIndex = 5
+
+local settingsBtnCorner = Instance.new("UICorner")
+settingsBtnCorner.CornerRadius = UDim.new(0, 8)
+settingsBtnCorner.Parent = settingsButton
 
 local scrolling = Instance.new("ScrollingFrame")
 scrolling.Parent = main
@@ -280,22 +348,49 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
-openButton.MouseEnter:Connect(function()
-    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        TextColor3 = Color3.fromRGB(0, 0, 0)
-    }):Play()
+-- Drag do botão ABRIR + clique sem abrir ao arrastar
+local openBtnDragging = false
+local openBtnDragStart = nil
+local openBtnStartPos  = nil
+local openBtnMoved     = false
+local DRAG_THRESHOLD   = 6  -- pixels mínimos para considerar arrasto
+
+openButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        openBtnDragging = true
+        openBtnMoved    = false
+        openBtnDragStart = input.Position
+        openBtnStartPos  = openButton.Position
+    end
 end)
 
-openButton.MouseLeave:Connect(function()
-    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = Color3.fromRGB(18, 18, 20),
-        TextColor3 = Color3.fromRGB(255, 255, 255)
-    }):Play()
+UserInputService.InputChanged:Connect(function(input)
+    if openBtnDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - openBtnDragStart
+        if delta.Magnitude > DRAG_THRESHOLD then
+            openBtnMoved = true
+        end
+        if openBtnMoved then
+            openButton.Position = UDim2.new(
+                openBtnStartPos.X.Scale, openBtnStartPos.X.Offset + delta.X,
+                openBtnStartPos.Y.Scale, openBtnStartPos.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        openBtnDragging = false
+    end
 end)
 
 openButton.MouseButton1Click:Connect(function()
-    main.Visible = not main.Visible
+    -- Só abre/fecha se não foi arrastar
+    if not openBtnMoved then
+        main.Visible = not main.Visible
+    end
+    openBtnMoved = false
 end)
 
 closeButton.MouseButton1Click:Connect(function()
@@ -309,6 +404,7 @@ local function createSection(text)
     section.BorderSizePixel = 0
     section.Size = UDim2.new(1, 0, 0, 100)
     section.AutomaticSize = Enum.AutomaticSize.Y
+    table.insert(allSections, section)
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 12)
@@ -376,6 +472,7 @@ local function createButton(parent, text, callback)
     end)
 
     btn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
         if callback then callback() end
     end)
 
@@ -466,6 +563,7 @@ local function createSlider(parent, config)
     end
 
     sliderFrame.InputBegan:Connect(function(input)
+        if settingsPanelVisivel then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             update(input)
@@ -529,6 +627,7 @@ createSlider(perfSection, {
     Default = 25,
     Format = "%.0f (milésimos)",
     Changed = function(v)
+        currentSpeed = v
         applyLocalSpeed(v)
     end
 })
@@ -541,6 +640,7 @@ createSlider(perfSection, {
     Default = 150,
     Format = "%.0f (milésimos)",
     Changed = function(v)
+        currentBrake = v
         applyLocalBrake(v)
     end
 })
@@ -566,6 +666,7 @@ createSlider(wheelSection, {
     Default = 1,
     Format = "%.1f",
     Changed = function(v)
+        currentGrip = v
         applyTireGrip(getVehicle(), v)
     end
 })
@@ -576,13 +677,42 @@ createSlider(wheelSection, {
 
 -- Estado do tracker
 local trackerAtivo = false
-local trackerAlvoNome = nil  -- nil = rastrear todos; string = rastrear só um
+local trackerAlvoNome = nil  -- nil = rastrear todos; string = username real do alvo
 local trackerLabels = {}     -- { [playerName] = BillboardGui }
 local trackerConnection = nil
 
 -- Cor do highlight do alvo específico
 local COR_TODOS = Color3.fromRGB(255, 255, 255)
 local COR_ALVO  = Color3.fromRGB(0, 220, 120)
+
+-- Busca jogador por username OU DisplayName (parcial, case-insensitive)
+local function buscarJogador(texto)
+    if not texto or texto == "" then return nil end
+    local t = texto:lower()
+    local melhor = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            local username    = p.Name:lower()
+            local displayName = p.DisplayName:lower()
+            -- match exato primeiro
+            if username == t or displayName == t then
+                return p
+            end
+            -- match parcial como fallback
+            if not melhor then
+                if username:find(t, 1, true) or displayName:find(t, 1, true) then
+                    melhor = p
+                end
+            end
+        end
+    end
+    return melhor
+end
+
+-- Verifica se um player bate com o alvo salvo (username)
+local function eAlvo(p)
+    return trackerAlvoNome and p.Name:lower() == trackerAlvoNome:lower()
+end
 
 local function criarLabel(targetPlayer)
     -- Remove label anterior se existir
@@ -596,11 +726,24 @@ local function criarLabel(targetPlayer)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
+    local isAlvo = eAlvo(targetPlayer)
+    local cor = isAlvo and COR_ALVO or COR_TODOS
+
+    -- Monta texto: DisplayName + @username se forem diferentes
+    local displayName = targetPlayer.DisplayName
+    local username    = targetPlayer.Name
+    local labelText
+    if displayName:lower() ~= username:lower() then
+        labelText = "👤 " .. displayName .. " (@" .. username .. ")"
+    else
+        labelText = "👤 " .. username
+    end
+
     local bb = Instance.new("BillboardGui")
-    bb.Name = "TrackerLabel_" .. targetPlayer.Name
+    bb.Name = "TrackerLabel_" .. username
     bb.Adornee = hrp
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 140, 0, 36)
+    bb.Size = UDim2.new(0, 200, 0, 36)
     bb.StudsOffset = Vector3.new(0, 3.2, 0)
     bb.Parent = playerGui
 
@@ -618,7 +761,7 @@ local function criarLabel(targetPlayer)
     local bgStroke = Instance.new("UIStroke")
     bgStroke.Parent = bg
     bgStroke.Thickness = 1.2
-    bgStroke.Color = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
+    bgStroke.Color = cor
     bgStroke.Transparency = 0.1
 
     local nameLabel = Instance.new("TextLabel")
@@ -627,12 +770,12 @@ local function criarLabel(targetPlayer)
     nameLabel.Position = UDim2.new(0, 4, 0, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 13
-    nameLabel.TextColor3 = (trackerAlvoNome and targetPlayer.Name:lower() == trackerAlvoNome:lower()) and COR_ALVO or COR_TODOS
-    nameLabel.Text = "👤 " .. targetPlayer.Name
+    nameLabel.TextSize = 11
+    nameLabel.TextColor3 = cor
+    nameLabel.Text = labelText
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 
-    trackerLabels[targetPlayer.Name] = bb
+    trackerLabels[username] = bb
 end
 
 local function removerLabel(playerName)
@@ -651,20 +794,17 @@ end
 local function iniciarTracker()
     trackerAtivo = true
 
-    -- Criar labels para jogadores já na partida
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
             if deveRastrear then
                 if p.Character then
                     criarLabel(p)
                 end
-                -- Quando o personagem spawnar
                 p.CharacterAdded:Connect(function()
                     if trackerAtivo then
                         task.wait(0.5)
-                        local deveAinda = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
-                        if deveAinda then
+                        if (trackerAlvoNome == nil) or eAlvo(p) then
                             criarLabel(p)
                         end
                     end
@@ -676,10 +816,9 @@ local function iniciarTracker()
         end
     end
 
-    -- Novos jogadores que entram durante o tracker
     Players.PlayerAdded:Connect(function(p)
         if trackerAtivo and p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or (p.Name:lower() == trackerAlvoNome:lower())
+            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
             if deveRastrear then
                 p.CharacterAdded:Connect(function()
                     if trackerAtivo then
@@ -733,7 +872,7 @@ playerInput.BackgroundTransparency = 1
 playerInput.Font = Enum.Font.GothamMedium
 playerInput.TextSize = 13
 playerInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-playerInput.PlaceholderText = "Nome do jogador (deixe vazio = todos)"
+playerInput.PlaceholderText = "Username ou nome de exibição (vazio = todos)"
 playerInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
 playerInput.ClearTextOnFocus = false
 playerInput.Text = ""
@@ -759,21 +898,14 @@ createButton(trackerSection, "Rastrear Jogador Específico", function()
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Tracker",
-                Text = "Digite o nome do jogador no campo acima",
+                Text = "Digite o username ou nome de exibição acima",
                 Duration = 3
             })
         end)
         return
     end
 
-    -- Verifica se o jogador existe na partida
-    local encontrado = nil
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower() == nome:lower() then
-            encontrado = p
-            break
-        end
-    end
+    local encontrado = buscarJogador(nome)
 
     if not encontrado then
         pcall(function()
@@ -787,12 +919,12 @@ createButton(trackerSection, "Rastrear Jogador Específico", function()
     end
 
     pararTracker()
-    trackerAlvoNome = encontrado.Name
+    trackerAlvoNome = encontrado.Name  -- sempre salva o username real
     iniciarTracker()
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "Tracker Ativado",
-            Text = "Rastreando: " .. encontrado.Name,
+            Text = "Rastreando: " .. encontrado.DisplayName .. " (@" .. encontrado.Name .. ")",
             Duration = 3
         })
     end)
@@ -801,24 +933,33 @@ end)
 -- Botão: Teleportar para Frente do Jogador
 createButton(trackerSection, "Teleportar para Frente", function()
     local nome = playerInput.Text
-    local alvoNome = (nome ~= nil and nome ~= "") and nome or trackerAlvoNome
+    local alvo = nil
 
-    if not alvoNome then
+    -- Prioridade: campo de texto → alvo ativo do tracker
+    local textoBusca = (nome and nome ~= "") and nome or trackerAlvoNome
+
+    if not textoBusca then
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Teleporte",
-                Text = "Digite o nome do jogador ou ative o tracker primeiro",
+                Text = "Digite o username ou nome de exibição, ou ative o tracker primeiro",
                 Duration = 3
             })
         end)
         return
     end
 
-    local alvo = nil
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower() == alvoNome:lower() then
-            alvo = p
-            break
+    -- buscarJogador aceita username E DisplayName
+    alvo = buscarJogador(textoBusca)
+
+    -- fallback: se buscarJogador não achar (ex: trackerAlvoNome já é username exato)
+    if not alvo then
+        local t = textoBusca:lower()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and (p.Name:lower() == t or p.DisplayName:lower() == t) then
+                alvo = p
+                break
+            end
         end
     end
 
@@ -826,7 +967,7 @@ createButton(trackerSection, "Teleportar para Frente", function()
         pcall(function()
             StarterGui:SetCore("SendNotification", {
                 Title = "Teleporte",
-                Text = "Jogador não encontrado na partida",
+                Text = "Jogador '" .. textoBusca .. "' não encontrado",
                 Duration = 3
             })
         end)
@@ -853,14 +994,13 @@ createButton(trackerSection, "Teleportar para Frente", function()
     local myHRP = myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
 
-    -- Teleporta 3 studs na frente do alvo
     local offset = alvoHRP.CFrame.LookVector * 3
     myHRP.CFrame = CFrame.new(alvoHRP.Position + offset + Vector3.new(0, 0.5, 0))
 
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "Teleportado!",
-            Text = "Você foi teleportado para frente de " .. alvo.Name,
+            Text = "Você foi para frente de " .. alvo.DisplayName .. " (@" .. alvo.Name .. ")",
             Duration = 3
         })
     end)
@@ -879,25 +1019,597 @@ createButton(trackerSection, "Parar Rastreamento", function()
 end)
 
 -- ============================================================
--- FIM DA NOVA SEÇÃO
+-- SEÇÃO: AUTOFARM
+-- ============================================================
+local autoFarmAtivo = false
+local autoFarmDir   = 1
+local autoFarmConn  = nil
+local AUTO_ALTURA   = 300
+local AUTO_SPEED    = 1500  -- studs/s ≈ 5400 km/h
+
+local autoFarmSection = createSection("AutoFarm")
+local autoFarmBtn = createButton(autoFarmSection, "▶ Ativar AutoFarm", function() end)
+
+local function pararAutoFarm()
+    autoFarmAtivo = false
+    if autoFarmConn then autoFarmConn:Disconnect(); autoFarmConn = nil end
+    autoFarmBtn.Text = "▶ Ativar AutoFarm"
+    autoFarmBtn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+    autoFarmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function iniciarAutoFarm()
+    local vehicle = getVehicle()
+    if not vehicle then
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = "AutoFarm",
+                Text = "Entre em um VehicleSeat primeiro",
+                Duration = 3
+            })
+        end)
+        return
+    end
+
+    -- Remove o limite de velocidade do VehicleSeat
+    local seat0 = getVehicleSeat(vehicle)
+    if seat0 then
+        pcall(function() seat0.MaxSpeed = 9999 end)
+    end
+
+    autoFarmAtivo = true
+    autoFarmDir   = 1
+    autoFarmBtn.Text = "⏹ Parar AutoFarm"
+    TweenService:Create(autoFarmBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    }):Play()
+
+    autoFarmConn = RunService.Stepped:Connect(function()
+        if not autoFarmAtivo then return end
+        local v2 = getVehicle()
+        local seat = v2 and getVehicleSeat(v2)
+        if not seat then pararAutoFarm(); return end
+
+        -- Garante MaxSpeed alto todo frame (alguns jogos resetam)
+        pcall(function() seat.MaxSpeed = 9999 end)
+
+        local pos = seat.Position
+        if pos.Y < AUTO_ALTURA - 5 then
+            -- Sobe rapidamente
+            seat.AssemblyLinearVelocity = Vector3.new(0, AUTO_SPEED, 0)
+        else
+            -- Voa em alta velocidade indo e voltando
+            seat.AssemblyLinearVelocity = Vector3.new(AUTO_SPEED * autoFarmDir, 0, 0)
+            seat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            if math.abs(pos.X) > 400 then
+                autoFarmDir = -autoFarmDir
+            end
+        end
+    end)
+end
+
+autoFarmBtn.MouseButton1Click:Connect(function()
+    if autoFarmAtivo then
+        pararAutoFarm()
+    else
+        iniciarAutoFarm()
+    end
+end)
+
+-- ============================================================
+-- PAINEL DE CONFIGURAÇÕES (filho do main, sobrepõe o conteúdo)
 -- ============================================================
 
--- Loop de Velocidade e Frenagem (Multiplicadores)
-RunService.Stepped:Connect(function()
+-- Helper: salva tema em StringValue no PlayerGui
+local function salvarTema()
+    local HttpService = game:GetService("HttpService")
+    local function c(col)
+        return {math.floor(col.R*255), math.floor(col.G*255), math.floor(col.B*255)}
+    end
+    local json = HttpService:JSONEncode({
+        p = c(tema.primaria),
+        s = c(tema.secundaria),
+        t = c(tema.terciaria),
+        q = c(tema.quaternaria),
+    })
+    local sv = playerGui:FindFirstChild("__ComitHubTema")
+    if not sv then
+        sv = Instance.new("StringValue")
+        sv.Name = "__ComitHubTema"
+        sv.Parent = playerGui
+    end
+    sv.Value = json
+end
+
+-- Toast de confirmação no canto da tela
+local toastLabel = Instance.new("TextLabel")
+toastLabel.Name = "ToastNotif"
+toastLabel.Parent = gui
+toastLabel.Size = UDim2.new(0, 220, 0, 40)
+toastLabel.Position = UDim2.new(1, -234, 1, -60)
+toastLabel.AnchorPoint = Vector2.new(0, 0)
+toastLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 34)
+toastLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+toastLabel.Font = Enum.Font.GothamBold
+toastLabel.TextSize = 13
+toastLabel.Text = ""
+toastLabel.BorderSizePixel = 0
+toastLabel.BackgroundTransparency = 1
+toastLabel.TextTransparency = 1
+toastLabel.ZIndex = 50
+local toastCorner = Instance.new("UICorner"); toastCorner.CornerRadius = UDim.new(0,10); toastCorner.Parent = toastLabel
+
+local toastThread = nil
+local function mostrarToast(msg)
+    if toastThread then task.cancel(toastThread) end
+    toastLabel.Text = "✔ " .. msg
+    TweenService:Create(toastLabel, TweenInfo.new(0.2), {
+        BackgroundTransparency = 0.15,
+        TextTransparency = 0
+    }):Play()
+    toastThread = task.delay(2.5, function()
+        TweenService:Create(toastLabel, TweenInfo.new(0.3), {
+            BackgroundTransparency = 1,
+            TextTransparency = 1
+        }):Play()
+    end)
+end
+
+-- Cor de section = primária levemente mais escura (fator 0.75)
+local function sectionColor()
+    local r = math.clamp(tema.primaria.R * 0.75, 0, 1)
+    local g = math.clamp(tema.primaria.G * 0.75, 0, 1)
+    local b = math.clamp(tema.primaria.B * 0.75, 0, 1)
+    -- garante mínimo de escuridão visível
+    if r < 0.04 and g < 0.04 and b < 0.04 then
+        r, g, b = 0.07, 0.07, 0.08
+    end
+    return Color3.new(r, g, b)
+end
+
+-- Aplica o tema em todos os elementos da UI
+local function aplicarTema()
+    local secCor = sectionColor()
+    -- Primária: fundo do main, settingsPanel, openButton
+    main.BackgroundColor3           = tema.primaria
+    openButton.BackgroundColor3     = tema.primaria
+    -- settingsPanel também muda
+    if settingsPanel then settingsPanel.BackgroundColor3 = tema.primaria end
+    -- Sections (fundo levemente mais escuro que primária)
+    for _, s in ipairs(allSections) do
+        pcall(function() s.BackgroundColor3 = secCor end)
+    end
+    -- Terciária: textos principais
+    openButton.TextColor3  = tema.terciaria
+    title.TextColor3       = tema.terciaria
+    -- Quaternária: knobs e fills de sliders
+    for _, k in ipairs(allSliderKnobs) do pcall(function() k.BackgroundColor3 = tema.quaternaria end) end
+    for _, f in ipairs(allSliderFills) do pcall(function() f.BackgroundColor3 = tema.quaternaria end) end
+end
+
+local settingsPanel = Instance.new("Frame")
+settingsPanel.Name = "SettingsPanel"
+settingsPanel.Parent = main
+settingsPanel.Size = UDim2.new(1, 0, 1, 0)
+settingsPanel.Position = UDim2.new(0, 0, 0, 0)
+settingsPanel.BackgroundColor3 = tema.primaria
+settingsPanel.BorderSizePixel = 0
+settingsPanel.Visible = false
+settingsPanel.ZIndex = 10
+
+local settingsPanelCorner = Instance.new("UICorner")
+settingsPanelCorner.CornerRadius = UDim.new(0, 14)
+settingsPanelCorner.Parent = settingsPanel
+
+local settingsPanelStroke = Instance.new("UIStroke")
+settingsPanelStroke.Parent = settingsPanel
+settingsPanelStroke.Thickness = 1.4
+settingsPanelStroke.Color = Color3.fromRGB(80, 80, 86)
+settingsPanelStroke.Transparency = 0.35
+
+-- Topbar do painel
+local sTopBar = Instance.new("Frame")
+sTopBar.Parent = settingsPanel
+sTopBar.Size = UDim2.new(1, 0, 0, 42)
+sTopBar.BackgroundTransparency = 1
+sTopBar.ZIndex = 11
+
+local sTitleLabel = Instance.new("TextLabel")
+sTitleLabel.Parent = sTopBar
+sTitleLabel.BackgroundTransparency = 1
+sTitleLabel.Position = UDim2.new(0, 14, 0, 0)
+sTitleLabel.Size = UDim2.new(1, -50, 1, 0)
+sTitleLabel.Font = Enum.Font.GothamBold
+sTitleLabel.TextSize = 15
+sTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+sTitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+sTitleLabel.Text = "Configurações"
+sTitleLabel.ZIndex = 11
+
+local sCloseBtn = Instance.new("TextButton")
+sCloseBtn.Parent = sTopBar
+sCloseBtn.Size = UDim2.new(0, 28, 0, 28)
+sCloseBtn.Position = UDim2.new(1, -36, 0.5, -14)
+sCloseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
+sCloseBtn.Text = "X"
+sCloseBtn.Font = Enum.Font.GothamBold
+sCloseBtn.TextSize = 14
+sCloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+sCloseBtn.BorderSizePixel = 0
+sCloseBtn.AutoButtonColor = false
+sCloseBtn.ZIndex = 12
+
+local sCBCorner = Instance.new("UICorner")
+sCBCorner.CornerRadius = UDim.new(0, 8)
+sCBCorner.Parent = sCloseBtn
+
+sCloseBtn.MouseButton1Click:Connect(function()
+    settingsPanelVisivel = false
+    settingsPanel.Visible = false
+end)
+
+-- ScrollingFrame dentro do painel de configurações
+local sScroll = Instance.new("ScrollingFrame")
+sScroll.Parent = settingsPanel
+sScroll.Position = UDim2.new(0, 0, 0, 48)
+sScroll.Size = UDim2.new(1, 0, 1, -48)
+sScroll.BackgroundTransparency = 1
+sScroll.BorderSizePixel = 0
+sScroll.ScrollBarThickness = 4
+sScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+sScroll.CanvasSize = UDim2.new()
+sScroll.ZIndex = 11
+
+local sScrollPad = Instance.new("UIPadding")
+sScrollPad.Parent = sScroll
+sScrollPad.PaddingTop  = UDim.new(0, 8)
+sScrollPad.PaddingLeft = UDim.new(0, 10)
+sScrollPad.PaddingRight= UDim.new(0, 10)
+sScrollPad.PaddingBottom = UDim.new(0, 8)
+
+local sScrollList = Instance.new("UIListLayout")
+sScrollList.Parent = sScroll
+sScrollList.Padding = UDim.new(0, 10)
+sScrollList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- ---- Toggle: Compartilhar Dados ----
+local function criarRowToggle(parent, labelTxt, descTxt, zBase, defaultOn, onChange)
+    local row = Instance.new("Frame")
+    row.Parent = parent
+    row.Size = UDim2.new(1, 0, 0, 60)
+    row.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
+    row.BorderSizePixel = 0
+    row.ZIndex = zBase
+
+    local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0,10); rc.Parent = row
+    local rp = Instance.new("UIPadding"); rp.PaddingLeft=UDim.new(0,10); rp.PaddingRight=UDim.new(0,10); rp.PaddingTop=UDim.new(0,8); rp.Parent = row
+
+    local lbl = Instance.new("TextLabel"); lbl.Parent = row
+    lbl.BackgroundTransparency = 1; lbl.Position = UDim2.new(0,0,0,0)
+    lbl.Size = UDim2.new(1,-56,0,22); lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.fromRGB(255,255,255); lbl.Text = labelTxt; lbl.ZIndex = zBase+1
+
+    local desc = Instance.new("TextLabel"); desc.Parent = row
+    desc.BackgroundTransparency = 1; desc.Position = UDim2.new(0,0,0,24)
+    desc.Size = UDim2.new(1,-56,0,28); desc.Font = Enum.Font.Gotham
+    desc.TextSize = 11; desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextWrapped = true; desc.TextColor3 = Color3.fromRGB(130,130,135)
+    desc.Text = descTxt; desc.ZIndex = zBase+1
+
+    local tbg = Instance.new("Frame"); tbg.Parent = row
+    tbg.AnchorPoint = Vector2.new(1,0); tbg.Position = UDim2.new(1,0,0,0)
+    tbg.Size = UDim2.new(0,46,0,24)
+    tbg.BackgroundColor3 = defaultOn and Color3.fromRGB(0,200,100) or Color3.fromRGB(55,55,60)
+    tbg.BorderSizePixel = 0; tbg.ZIndex = zBase+2
+    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(1,0); tbc.Parent = tbg
+
+    local tkn = Instance.new("Frame"); tkn.Parent = tbg
+    tkn.AnchorPoint = Vector2.new(0,0.5)
+    tkn.Position = defaultOn and UDim2.new(0,25,0.5,0) or UDim2.new(0,3,0.5,0)
+    tkn.Size = UDim2.new(0,18,0,18)
+    tkn.BackgroundColor3 = Color3.fromRGB(255,255,255); tkn.BorderSizePixel = 0; tkn.ZIndex = zBase+3
+    local tknc = Instance.new("UICorner"); tknc.CornerRadius = UDim.new(1,0); tknc.Parent = tkn
+
+    local state = defaultOn
+    local tbtn = Instance.new("TextButton"); tbtn.Parent = tbg
+    tbtn.Size = UDim2.new(1,0,1,0); tbtn.BackgroundTransparency = 1; tbtn.Text = ""; tbtn.ZIndex = zBase+4
+    tbtn.MouseButton1Click:Connect(function()
+        state = not state
+        if state then
+            TweenService:Create(tbg, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(0,200,100)}):Play()
+            TweenService:Create(tkn, TweenInfo.new(0.2), {Position=UDim2.new(0,25,0.5,0)}):Play()
+        else
+            TweenService:Create(tbg, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(55,55,60)}):Play()
+            TweenService:Create(tkn, TweenInfo.new(0.2), {Position=UDim2.new(0,3,0.5,0)}):Play()
+        end
+        if onChange then onChange(state) end
+    end)
+    return row
+end
+
+-- ---- Prefixos de Tema ----
+local temaPresets = {
+    { nome = "Dark",           p = Color3.fromRGB(17,17,19),    s = Color3.fromRGB(255,255,255), t = Color3.fromRGB(255,255,255), q = Color3.fromRGB(255,255,255) },
+    { nome = "Claro",          p = Color3.fromRGB(240,240,245), s = Color3.fromRGB(80,80,90),   t = Color3.fromRGB(20,20,25),   q = Color3.fromRGB(80,80,90)   },
+    { nome = "Vermelho Escuro", p = Color3.fromRGB(28,8,8),     s = Color3.fromRGB(220,50,50),  t = Color3.fromRGB(255,200,200), q = Color3.fromRGB(200,40,40)  },
+}
+
+local presetLabel = Instance.new("TextLabel"); presetLabel.Parent = sScroll
+presetLabel.BackgroundTransparency = 1; presetLabel.Size = UDim2.new(1,0,0,20)
+presetLabel.Font = Enum.Font.GothamBold; presetLabel.TextSize = 13
+presetLabel.TextXAlignment = Enum.TextXAlignment.Left
+presetLabel.TextColor3 = Color3.fromRGB(255,255,255); presetLabel.Text = "Temas Rápidos"; presetLabel.ZIndex = 11
+
+local presetRow = Instance.new("Frame"); presetRow.Parent = sScroll
+presetRow.Size = UDim2.new(1,0,0,36); presetRow.BackgroundTransparency = 1; presetRow.ZIndex = 11
+
+local presetList = Instance.new("UIListLayout"); presetList.Parent = presetRow
+presetList.FillDirection = Enum.FillDirection.Horizontal
+presetList.Padding = UDim.new(0,6); presetList.SortOrder = Enum.SortOrder.LayoutOrder
+
+for _, preset in ipairs(temaPresets) do
+    local pbtn = Instance.new("TextButton"); pbtn.Parent = presetRow
+    pbtn.Size = UDim2.new(0, 100, 1, 0)
+    pbtn.BackgroundColor3 = preset.p; pbtn.BorderSizePixel = 0
+    pbtn.Font = Enum.Font.GothamBold; pbtn.TextSize = 11
+    pbtn.TextColor3 = preset.t; pbtn.Text = preset.nome
+    pbtn.AutoButtonColor = false; pbtn.ZIndex = 12
+    pbtn.TextScaled = false
+    local pbc = Instance.new("UICorner"); pbc.CornerRadius = UDim.new(0,8); pbc.Parent = pbtn
+    local pbs = Instance.new("UIStroke"); pbs.Parent = pbtn; pbs.Thickness = 1
+    pbs.Color = Color3.fromRGB(80,80,86); pbs.Transparency = 0.4
+
+    pbtn.MouseButton1Click:Connect(function()
+        tema.primaria    = preset.p
+        tema.secundaria  = preset.s
+        tema.terciaria   = preset.t
+        tema.quaternaria = preset.q
+        aplicarTema()
+        salvarTema()
+        mostrarToast("Tema '" .. preset.nome .. "' aplicado!")
+    end)
+end
+
+criarRowToggle(sScroll, "Compartilhar Dados",
+    "Reaplica suspensão, velocidade, frenagem e grip ao entrar em um carro",
+    11, true, function(state)
+        compartilharDados = state
+        if state then
+            savedConfig.suspension = currentSuspension
+            savedConfig.speed      = currentSpeed
+            savedConfig.brake      = currentBrake
+            savedConfig.grip       = currentGrip
+        end
+    end
+)
+
+-- ---- Paleta de Cores ----
+local corNomes = {
+    { key = "primaria",    label = "Cor Primária",    desc = "Fundo do hub e botão Abrir" },
+    { key = "secundaria",  label = "Cor Secundária",  desc = "Hover do botão Abrir" },
+    { key = "terciaria",   label = "Cor Terciária",   desc = "Textos do hub" },
+    { key = "quaternaria", label = "Cor Quaternária", desc = "Sliders (knob e fill)" },
+}
+
+local function criarSliderCor(parent, titulo, getVal, setVal, zBase)
+    local holder = Instance.new("Frame")
+    holder.Parent = parent
+    holder.Size = UDim2.new(1, 0, 0, 26)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = zBase
+
+    local lbl = Instance.new("TextLabel"); lbl.Parent = holder
+    lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(0, 24, 1, 0)
+    lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
+    lbl.TextColor3 = Color3.fromRGB(180,180,185); lbl.Text = titulo; lbl.ZIndex = zBase+1
+
+    local valLbl = Instance.new("TextLabel"); valLbl.Parent = holder
+    valLbl.BackgroundTransparency = 1; valLbl.Size = UDim2.new(0,28,1,0)
+    valLbl.Position = UDim2.new(1,-28,0,0)
+    valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 11
+    valLbl.TextColor3 = Color3.fromRGB(255,255,255); valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.ZIndex = zBase+1
+
+    local sFrame = Instance.new("Frame"); sFrame.Parent = holder
+    sFrame.Position = UDim2.new(0,28,0.5,-3); sFrame.Size = UDim2.new(1,-60,0,6)
+    sFrame.BackgroundColor3 = Color3.fromRGB(45,45,50); sFrame.BorderSizePixel = 0; sFrame.ZIndex = zBase+1
+    local sfc = Instance.new("UICorner"); sfc.CornerRadius = UDim.new(1,0); sfc.Parent = sFrame
+
+    local fill = Instance.new("Frame"); fill.Parent = sFrame
+    fill.BackgroundColor3 = tema.quaternaria; fill.BorderSizePixel = 0
+    fill.ZIndex = zBase+2
+    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1,0); fc.Parent = fill
+    table.insert(allSliderFills, fill)
+
+    local knob = Instance.new("Frame"); knob.Parent = sFrame
+    knob.AnchorPoint = Vector2.new(0.5,0.5); knob.Size = UDim2.new(0,14,0,14)
+    knob.BackgroundColor3 = tema.quaternaria; knob.BorderSizePixel = 0; knob.ZIndex = zBase+3
+    local kc = Instance.new("UICorner"); kc.CornerRadius = UDim.new(1,0); kc.Parent = knob
+    table.insert(allSliderKnobs, knob)
+
+    local cur = getVal()
+    local function refresh()
+        local pos = cur / 255
+        fill.Size = UDim2.new(pos,0,1,0)
+        knob.Position = UDim2.new(pos,0,0.5,0)
+        valLbl.Text = tostring(math.floor(cur))
+    end
+    refresh()
+
+    local drag = false
+    sFrame.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if drag and inp.UserInputType == Enum.UserInputType.MouseMovement then
+            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            setVal(cur); refresh()
+        end
+    end)
+end
+
+for _, info in ipairs(corNomes) do
+    local card = Instance.new("Frame")
+    card.Parent = sScroll
+    card.Size = UDim2.new(1, 0, 0, 130)
+    card.BackgroundColor3 = Color3.fromRGB(23, 23, 26)
+    card.BorderSizePixel = 0
+    card.ZIndex = 11
+
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0,10); cc.Parent = card
+    local cp = Instance.new("UIPadding"); cp.PaddingLeft=UDim.new(0,10); cp.PaddingRight=UDim.new(0,10); cp.PaddingTop=UDim.new(0,8); cp.PaddingBottom=UDim.new(0,8); cp.Parent = card
+    local cl = Instance.new("UIListLayout"); cl.Parent = card; cl.Padding = UDim.new(0,6); cl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local headerLbl = Instance.new("TextLabel"); headerLbl.Parent = card
+    headerLbl.BackgroundTransparency = 1; headerLbl.Size = UDim2.new(1,0,0,18)
+    headerLbl.Font = Enum.Font.GothamBold; headerLbl.TextSize = 12
+    headerLbl.TextXAlignment = Enum.TextXAlignment.Left
+    headerLbl.TextColor3 = Color3.fromRGB(255,255,255); headerLbl.Text = info.label; headerLbl.ZIndex = 12
+
+    local descLbl = Instance.new("TextLabel"); descLbl.Parent = card
+    descLbl.BackgroundTransparency = 1; descLbl.Size = UDim2.new(1,0,0,14)
+    descLbl.Font = Enum.Font.Gotham; descLbl.TextSize = 10
+    descLbl.TextXAlignment = Enum.TextXAlignment.Left
+    descLbl.TextColor3 = Color3.fromRGB(110,110,115); descLbl.Text = info.desc; descLbl.ZIndex = 12
+
+    -- Preview da cor
+    local previewRow = Instance.new("Frame"); previewRow.Parent = card
+    previewRow.Size = UDim2.new(1,0,0,18); previewRow.BackgroundTransparency = 1; previewRow.ZIndex = 12
+    local preview = Instance.new("Frame"); preview.Parent = previewRow
+    preview.Size = UDim2.new(1,0,1,0); preview.BorderSizePixel = 0; preview.ZIndex = 12
+    local prc = Instance.new("UICorner"); prc.CornerRadius = UDim.new(0,4); prc.Parent = preview
+
+    local function getR() return math.floor(tema[info.key].R*255) end
+    local function getG() return math.floor(tema[info.key].G*255) end
+    local function getB() return math.floor(tema[info.key].B*255) end
+
+    local function atualizarPreview()
+        preview.BackgroundColor3 = tema[info.key]
+        aplicarTema()
+        salvarTema()
+    end
+
+    criarSliderCor(card, "R", getR, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(v, math.floor(c.G*255), math.floor(c.B*255)); atualizarPreview()
+    end, 12)
+    criarSliderCor(card, "G", getG, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(math.floor(c.R*255), v, math.floor(c.B*255)); atualizarPreview()
+    end, 12)
+    criarSliderCor(card, "B", getB, function(v)
+        local c = tema[info.key]; tema[info.key] = Color3.fromRGB(math.floor(c.R*255), math.floor(c.G*255), v); atualizarPreview()
+    end, 12)
+
+    atualizarPreview()
+end
+
+-- Botão resetar tema
+local resetTemaBtn = Instance.new("TextButton")
+resetTemaBtn.Parent = sScroll
+resetTemaBtn.Size = UDim2.new(1,0,0,34)
+resetTemaBtn.BackgroundColor3 = Color3.fromRGB(32,32,36)
+resetTemaBtn.TextColor3 = Color3.fromRGB(255,255,255)
+resetTemaBtn.BorderSizePixel = 0
+resetTemaBtn.Font = Enum.Font.GothamBold
+resetTemaBtn.TextSize = 13
+resetTemaBtn.Text = "Resetar Tema"
+resetTemaBtn.ZIndex = 11
+local rtc = Instance.new("UICorner"); rtc.CornerRadius = UDim.new(0,10); rtc.Parent = resetTemaBtn
+resetTemaBtn.MouseButton1Click:Connect(function()
+    tema.primaria    = Color3.fromRGB(17,17,19)
+    tema.secundaria  = Color3.fromRGB(255,255,255)
+    tema.terciaria   = Color3.fromRGB(255,255,255)
+    tema.quaternaria = Color3.fromRGB(255,255,255)
+    aplicarTema()
+    salvarTema()
+    mostrarToast("Tema resetado!")
+end)
+
+-- Conecta o botão ⚙ para abrir/fechar o painel interno
+settingsButton.MouseEnter:Connect(function()
+    TweenService:Create(settingsButton, TweenInfo.new(0.16), {
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    }):Play()
+end)
+settingsButton.MouseLeave:Connect(function()
+    TweenService:Create(settingsButton, TweenInfo.new(0.16), {
+        TextColor3 = Color3.fromRGB(180, 180, 185)
+    }):Play()
+end)
+settingsButton.MouseButton1Click:Connect(function()
+    settingsPanelVisivel = not settingsPanelVisivel
+    settingsPanel.Visible = settingsPanelVisivel
+end)
+
+-- ============================================================
+-- LÓGICA DE COMPARTILHAR DADOS: reaplicação contínua
+-- ============================================================
+
+local function reaplicarConfigs()
     local vehicle = getVehicle()
     if not vehicle then return end
-    local seat = getVehicleSeat(vehicle)
-    if not seat then return end
+    applyLocalSuspension(savedConfig.suspension)
+    velocityMult  = savedConfig.speed  / 1000
+    velocityMult2 = savedConfig.brake  / 1000
+    applyTireGrip(vehicle, savedConfig.grip)
+end
 
-    -- Multiplicador de Velocidade (W)
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+local function outroJogadorNoVeiculo(vehicle)
+    if not vehicle then return false end
+    for _, obj in ipairs(vehicle:GetDescendants()) do
+        if (obj:IsA("Seat") or obj:IsA("VehicleSeat")) and obj.Occupant then
+            local op = Players:GetPlayerFromCharacter(obj.Occupant.Parent)
+            if op and op ~= player then return true end
+        end
     end
+    return false
+end
 
-    -- Multiplicador de Frenagem (S)
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
-    end
+local function monitorarAssento(char)
+    local humanoid = char:WaitForChild("Humanoid", 10)
+    if not humanoid then return end
+    humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
+        if humanoid.SeatPart then
+            task.wait(0.3)
+            local vehicle = getVehicle()
+            if vehicle and compartilharDados then
+                reaplicarConfigs()
+            end
+        end
+    end)
+end
+
+local character = player.Character or player.CharacterAdded:Wait()
+monitorarAssento(character)
+player.CharacterAdded:Connect(function(char)
+    monitorarAssento(char)
+end)
+
+-- Aplica tema inicial
+aplicarTema()
+
+-- ============================================================
+-- HOVER DO BOTÃO ABRIR com cor secundária
+-- ============================================================
+openButton.MouseEnter:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = tema.secundaria,
+        TextColor3 = Color3.fromRGB(0, 0, 0)
+    }):Play()
+end)
+openButton.MouseLeave:Connect(function()
+    TweenService:Create(openButton, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = tema.primaria,
+        TextColor3 = tema.terciaria
+    }):Play()
 end)
 
 local footer = Instance.new("TextLabel")
@@ -909,9 +1621,70 @@ footer.TextSize = 13
 footer.TextColor3 = Color3.fromRGB(180, 180, 185)
 footer.Text = "Feito por Rodrigues"
 
--- Tecla para fechar a GUI (RightBracket como no original)
+-- Tecla para fechar a GUI
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.RightBracket then
         main.Visible = not main.Visible
+    end
+end)
+
+-- ============================================================
+-- RUNSERVICE: velocidade, frenagem, compartilhar dados, tracker time
+-- ============================================================
+
+-- Cor do time via Teams
+local function getTeamColor(targetPlayer)
+    local Teams = game:GetService("Teams")
+    if not Teams then return Color3.fromRGB(150,150,150) end
+    for _, team in ipairs(Teams:GetTeams()) do
+        if targetPlayer.Team == team then
+            return team.TeamColor.Color
+        end
+    end
+    return Color3.fromRGB(150, 150, 150) -- neutral = cinza
+end
+
+-- Atualiza cor da borda do label do tracker com a cor do time
+local function atualizarCorTime()
+    for pName, bb in pairs(trackerLabels) do
+        local p = Players:FindFirstChild(pName)
+        if p and bb and bb.Parent then
+            local bg = bb:FindFirstChildOfClass("Frame")
+            if bg then
+                local stroke = bg:FindFirstChildOfClass("UIStroke")
+                local nameLabel = bg:FindFirstChildOfClass("TextLabel")
+                local cor
+                if eAlvo(p) then
+                    cor = COR_ALVO
+                else
+                    cor = getTeamColor(p)
+                end
+                if stroke then stroke.Color = cor end
+                if nameLabel then nameLabel.TextColor3 = cor end
+            end
+        end
+    end
+end
+
+RunService.Stepped:Connect(function()
+    local vehicle = getVehicle()
+
+    -- Atualiza cores dos times no tracker a cada frame
+    atualizarCorTime()
+
+    if not vehicle then return end
+    local seat = getVehicleSeat(vehicle)
+    if not seat then return end
+
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+        seat.AssemblyLinearVelocity *= Vector3.new(1 - velocityMult2, 1, 1 - velocityMult2)
+    end
+
+    if compartilharDados and outroJogadorNoVeiculo(vehicle) then
+        applyLocalSuspension(savedConfig.suspension)
+        applyTireGrip(vehicle, savedConfig.grip)
     end
 end)
