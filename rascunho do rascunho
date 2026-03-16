@@ -1343,22 +1343,73 @@ local function lerTrancado(val)
     return nil
 end
 
--- Dispara o ProximityPrompt para alternar a tranca (igual ao dono clicando)
-local function acionarPrompt(vehicle)
+-- Dispara o ProximityPrompt desabilitando o Script de validação temporariamente
+local function acionarPrompt(vehicle, forcarEstado)
     local prompt = encontrarPrompt(vehicle)
     if not prompt then return false end
-    -- Método 1: FireProximityPrompt (disponível em executores)
-    local ok = pcall(function()
-        fireproximityprompt(prompt)
-    end)
-    if ok then return true end
-    -- Método 2: TriggerPrompt via função nativa do executor
-    ok = pcall(function()
-        prompt:InputHoldBegin()
-        task.wait(0.05)
-        prompt:InputHoldEnd()
-    end)
-    return ok
+
+    -- Encontra e desabilita o Script de validação dentro do ProximityPrompt
+    local scripts = {}
+    for _, obj in ipairs(prompt:GetChildren()) do
+        if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+            if obj.Enabled then
+                obj.Enabled = false
+                table.insert(scripts, obj)
+            end
+        end
+    end
+    -- Também desabilita scripts no pai do prompt (Tranca)
+    if prompt.Parent then
+        for _, obj in ipairs(prompt.Parent:GetChildren()) do
+            if (obj:IsA("Script") or obj:IsA("LocalScript")) and obj.Enabled then
+                obj.Enabled = false
+                table.insert(scripts, obj)
+            end
+        end
+    end
+
+    task.wait(0.05)
+
+    -- Tenta escrever diretamente no valor também (tenta os dois juntos)
+    local val, _ = encontrarTrancado(vehicle)
+    if val then
+        pcall(function()
+            if val:IsA("BoolValue") then
+                val.Value = forcarEstado
+            elseif val:IsA("IntValue") or val:IsA("NumberValue") then
+                val.Value = forcarEstado and 1 or 0
+            elseif val:IsA("StringValue") then
+                val.Value = tostring(forcarEstado)
+            end
+        end)
+    end
+
+    -- Aciona o prompt com script desabilitado
+    local ok = false
+    pcall(function() fireproximityprompt(prompt); ok = true end)
+    if not ok then
+        pcall(function()
+            prompt.Triggered:Fire(player)
+            ok = true
+        end)
+    end
+    if not ok then
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.05)
+            prompt:InputHoldEnd()
+            ok = true
+        end)
+    end
+
+    task.wait(0.1)
+
+    -- Reabilita os scripts
+    for _, s in ipairs(scripts) do
+        pcall(function() s.Enabled = true end)
+    end
+
+    return true
 end
 
 -- Atualiza o visual do botão de um veículo na lista
@@ -1496,7 +1547,7 @@ criarBotaoAcao(trancaAcaoHolder, "TRANCAR", Color3.fromRGB(180, 40, 40), functio
         mostrarToast("Ja esta trancado!")
         return
     end
-    local ok = acionarPrompt(veiculoSelecionado)
+    local ok = acionarPrompt(veiculoSelecionado, true)
     task.wait(0.2)
     atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
     if ok then
@@ -1522,7 +1573,7 @@ criarBotaoAcao(trancaAcaoHolder, "DESTRANCAR", Color3.fromRGB(0, 140, 60), funct
         mostrarToast("Ja esta destrancado!")
         return
     end
-    local ok = acionarPrompt(veiculoSelecionado)
+    local ok = acionarPrompt(veiculoSelecionado, false)
     task.wait(0.2)
     atualizarBotaoVeiculo(veiculoSelecionado, botoesVeiculo[veiculoSelecionado])
     if ok then
