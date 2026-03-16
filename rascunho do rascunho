@@ -26,8 +26,13 @@ local savedConfig = {
     grip       = 1,
 }
 
--- Veículo monitorado anteriormente (para detectar troca/reset)
-local ultimoVehicle = nil
+-- Estado das rodas (tamanho, espaçador, camber)
+local currentWheelSize   = 1    -- escala multiplicadora (1 = original)
+local currentSpacer      = 0    -- deslocamento lateral em studs
+local currentCamber      = 0    -- ângulo em graus
+
+-- Posições/CFrames originais das rodas (para calcular offsets sem acumular)
+local originalWheelData  = {}   -- { [part] = { cframe, size } }
 
 local tokensRoda = {
     FL = {"FL","FRONTLEFT","FRONT_LEFT","LEFTFRONT","LEFT_FRONT"},
@@ -173,7 +178,93 @@ local function applyTireGrip(vehicle, gripValue)
     end
 end
 
--- UI rascunhos para teste
+-- ============================================================
+-- LÓGICA DE RODAS: Tamanho, Espaçador e Camber
+-- ============================================================
+
+-- Retorna todas as peças de roda do veículo com sua tag (FL/FR/RL/RR)
+local function getWheelParts(vehicle)
+    if not vehicle then return {} end
+    local rodas = {}
+    for _, part in ipairs(vehicle:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local nameUpper = string.upper(part.Name)
+            local tag = tagDaRoda(nameUpper)
+            if tag then
+                -- Ignora peças muito pequenas (eixos, parafusos)
+                local sz = part.Size
+                if sz.X > 0.2 and sz.Y > 0.2 and sz.Z > 0.2 then
+                    table.insert(rodas, { part = part, tag = tag })
+                end
+            end
+        end
+    end
+    return rodas
+end
+
+-- Captura CFrame e Size originais das rodas (chama ao entrar no veículo)
+local function capturarOriginais(vehicle)
+    originalWheelData = {}
+    for _, info in ipairs(getWheelParts(vehicle)) do
+        originalWheelData[info.part] = {
+            cframe = info.part.CFrame,
+            size   = info.part.Size,
+        }
+    end
+end
+
+-- Lado da roda: FL/RL = esquerda (-X), FR/RR = direita (+X)
+local tagLado = { FL = -1, RL = -1, FR = 1, RR = 1 }
+
+local function aplicarRodas(vehicle, wheelSize, spacer, camber)
+    if not vehicle then return end
+    for _, info in ipairs(getWheelParts(vehicle)) do
+        local part   = info.part
+        local tag    = info.tag
+        local orig   = originalWheelData[part]
+        if not orig then
+            -- Se ainda não capturou, captura agora
+            originalWheelData[part] = { cframe = part.CFrame, size = part.Size }
+            orig = originalWheelData[part]
+        end
+
+        -- Tamanho: escala uniforme a partir do tamanho original
+        pcall(function()
+            part.Size = orig.size * wheelSize
+        end)
+
+        -- Espaçador: desloca lateralmente a partir da posição original
+        local lado       = tagLado[tag] or 1
+        local offsetLat  = Vector3.new(lado * spacer, 0, 0)
+
+        -- Camber: rotação em Z (espelhada por lado)
+        -- FL/RL (esquerda): camber negativo inclina o topo para dentro → rotZ positivo
+        -- FR/RR (direita):  camber negativo inclina o topo para dentro → rotZ negativo
+        local camberRad  = math.rad(camber) * (-lado)
+        local camberRot  = CFrame.Angles(0, 0, camberRad)
+
+        pcall(function()
+            part.CFrame = CFrame.new(orig.cframe.Position + offsetLat)
+                * (orig.cframe - orig.cframe.Position)  -- rotação original
+                * camberRot
+        end)
+    end
+end
+
+local function applyWheelSize(v)
+    currentWheelSize = v
+    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
+end
+
+local function applySpacer(v)
+    currentSpacer = v
+    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
+end
+
+local function applyCamber(v)
+    currentCamber = v
+    aplicarRodas(getVehicle(), currentWheelSize, currentSpacer, currentCamber)
+end
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
 openButton.Parent = gui
@@ -610,6 +701,68 @@ createSlider(wheelSection, {
         applyTireGrip(getVehicle(), v)
     end
 })
+
+-- ============================================================
+-- SEÇÃO: RODAS AVANÇADO (Tamanho, Espaçador, Camber)
+-- ============================================================
+local wheelAdvSection = createSection("Rodas Avançado")
+
+createSlider(wheelAdvSection, {
+    Title = "Tamanho das Rodas",
+    Min = 0.5,
+    Max = 3.0,
+    Step = 0.05,
+    Default = 1.0,
+    Format = "%.2fx",
+    Changed = function(v)
+        applyWheelSize(v)
+    end
+})
+
+createButton(wheelAdvSection, "Resetar Tamanho", function()
+    applyWheelSize(1.0)
+end)
+
+createSlider(wheelAdvSection, {
+    Title = "Espaçador (Largura de Via)",
+    Min = 0,
+    Max = 2.0,
+    Step = 0.05,
+    Default = 0,
+    Format = "%.2f studs",
+    Changed = function(v)
+        applySpacer(v)
+    end
+})
+
+createSlider(wheelAdvSection, {
+    Title = "Camber (Inclinação)",
+    Min = -15,
+    Max = 15,
+    Step = 0.5,
+    Default = 0,
+    Format = "%.1f°",
+    Changed = function(v)
+        applyCamber(v)
+    end
+})
+
+createButton(wheelAdvSection, "Resetar Rodas", function()
+    currentWheelSize = 1.0
+    currentSpacer    = 0
+    currentCamber    = 0
+    local vehicle = getVehicle()
+    if vehicle then
+        -- Restaura tamanho e CFrame originais
+        for _, info in ipairs(getWheelParts(vehicle)) do
+            local orig = originalWheelData[info.part]
+            if orig then
+                pcall(function() info.part.Size   = orig.size   end)
+                pcall(function() info.part.CFrame = orig.cframe end)
+            end
+        end
+    end
+end)
 
 -- ============================================================
 -- NOVA SEÇÃO: TRACKER DE JOGADORES
@@ -1174,9 +1327,21 @@ local function monitorarAssento(char)
     local humanoid = char:WaitForChild("Humanoid", 10)
     if not humanoid then return end
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
-        if compartilharDados and humanoid.SeatPart then
+        if humanoid.SeatPart then
             task.wait(0.3)
-            reaplicarConfigs()
+            -- Captura posições originais das rodas ao entrar no veículo
+            local vehicle = getVehicle()
+            if vehicle then
+                capturarOriginais(vehicle)
+                -- Reaplica configs salvas
+                if compartilharDados then
+                    reaplicarConfigs()
+                end
+                -- Reaplica rodas se houver configuração
+                if currentWheelSize ~= 1 or currentSpacer ~= 0 or currentCamber ~= 0 then
+                    aplicarRodas(vehicle, currentWheelSize, currentSpacer, currentCamber)
+                end
+            end
         end
     end)
 end
@@ -1210,6 +1375,12 @@ RunService.Stepped:Connect(function()
     if compartilharDados and outroJogadorNoVeiculo(vehicle) then
         applyLocalSuspension(savedConfig.suspension)
         applyTireGrip(vehicle, savedConfig.grip)
+    end
+
+    -- Rodas Avançado: reaplicar tamanho, espaçador e camber continuamente
+    -- (garante visibilidade para todos os jogadores e resiste a resets do jogo)
+    if currentWheelSize ~= 1 or currentSpacer ~= 0 or currentCamber ~= 0 then
+        aplicarRodas(vehicle, currentWheelSize, currentSpacer, currentCamber)
     end
 end)
 
