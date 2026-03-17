@@ -1667,6 +1667,31 @@ local function aplicarTema()
     -- Quaternária: knobs e fills de sliders
     for _, k in ipairs(allSliderKnobs) do pcall(function() k.BackgroundColor3 = tema.quaternaria end) end
     for _, f in ipairs(allSliderFills) do pcall(function() f.BackgroundColor3 = tema.quaternaria end) end
+
+    -- Aplica tema no chatHub se estiver aberto
+    if chatHubGui and chatHubGui.Parent then
+        local chatWin = chatHubGui:FindFirstChildWhichIsA("Frame")
+        if chatWin then
+            -- Fundo da janela = primária levemente mais escura
+            local r = math.max(0, tema.primaria.R - 0.04)
+            local g = math.max(0, tema.primaria.G - 0.04)
+            local b = math.max(0, tema.primaria.B - 0.04)
+            chatWin.BackgroundColor3 = Color3.new(r, g, b)
+            -- Topbar = primária pura
+            local tb = chatWin:FindFirstChildWhichIsA("Frame")
+            if tb then tb.BackgroundColor3 = tema.primaria end
+            -- cfgPanel = primária levemente mais clara
+            for _, child in ipairs(chatWin:GetChildren()) do
+                if child:IsA("Frame") and child.Name == "" and child.ZIndex == 500 then
+                    child.BackgroundColor3 = Color3.new(
+                        math.min(1, tema.primaria.R + 0.03),
+                        math.min(1, tema.primaria.G + 0.03),
+                        math.min(1, tema.primaria.B + 0.05)
+                    )
+                end
+            end
+        end
+    end
 end
 
 local settingsPanel = Instance.new("Frame")
@@ -2138,7 +2163,7 @@ local function criarChatHubGui()
     chatHubGui = Instance.new("ScreenGui")
     chatHubGui.Name = "ComitHubChat"
     chatHubGui.ResetOnSpawn = false
-    chatHubGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    chatHubGui.ZIndexBehavior = Enum.ZIndexBehavior.Global  -- Global: ZIndex absoluto, cfgPanel sempre por cima
     chatHubGui.Parent = playerGui
 
     -- Janela principal
@@ -2165,6 +2190,21 @@ local function criarChatHubGui()
     titleLbl.TextColor3 = Color3.fromRGB(220,50,50)
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
     titleLbl.Text = "ComitHub Chat"
+
+    -- Badge "Novo!" na topbar do chatHub
+    local topNovoBadge = Instance.new("TextLabel")
+    topNovoBadge.Parent = topBar
+    topNovoBadge.BackgroundColor3 = Color3.fromRGB(220,50,50)
+    topNovoBadge.BorderSizePixel = 0
+    topNovoBadge.Position = UDim2.new(0,130,0.5,-9)
+    topNovoBadge.Size = UDim2.new(0,38,0,17)
+    topNovoBadge.Font = Enum.Font.GothamBold
+    topNovoBadge.TextSize = 9
+    topNovoBadge.TextColor3 = Color3.fromRGB(255,255,255)
+    topNovoBadge.Text = "Novo!"
+    topNovoBadge.Rotation = -10
+    topNovoBadge.ZIndex = 22
+    local tnbc = Instance.new("UICorner"); tnbc.CornerRadius = UDim.new(0,4); tnbc.Parent = topNovoBadge
 
     -- Botão configurações do chat
     local cfgBtn = Instance.new("TextButton")
@@ -2209,10 +2249,13 @@ local function criarChatHubGui()
 
     -- Painel de configurações do chat (oculto por padrão)
     local cfgPanel = Instance.new("Frame")
-    cfgPanel.Parent = win; cfgPanel.Size = UDim2.new(1,0,0,110)
-    cfgPanel.Position = UDim2.new(0,0,0,42)
-    cfgPanel.BackgroundColor3 = Color3.fromRGB(18,18,22)
-    cfgPanel.BorderSizePixel = 0; cfgPanel.Visible = false; cfgPanel.ZIndex = 25
+    cfgPanel.Parent = win
+    cfgPanel.Size = UDim2.new(1,-16,0,115)
+    cfgPanel.Position = UDim2.new(0,8,0,48)
+    cfgPanel.BackgroundColor3 = Color3.fromRGB(18,18,26)
+    cfgPanel.BorderSizePixel = 0
+    cfgPanel.Visible = false
+    cfgPanel.ZIndex = 500  -- sempre por cima com ZIndexBehavior.Global
     local cfgpc = Instance.new("UICorner"); cfgpc.CornerRadius = UDim.new(0,10); cfgpc.Parent = cfgPanel
     local cfgPad = Instance.new("UIPadding"); cfgPad.Parent = cfgPanel
     cfgPad.PaddingLeft=UDim.new(0,12); cfgPad.PaddingRight=UDim.new(0,12)
@@ -2225,7 +2268,7 @@ local function criarChatHubGui()
     cfgTitle.Font = Enum.Font.GothamBold; cfgTitle.TextSize = 12
     cfgTitle.TextColor3 = Color3.fromRGB(255,255,255)
     cfgTitle.TextXAlignment = Enum.TextXAlignment.Left
-    cfgTitle.Text = "Configuracoes do Chat"; cfgTitle.ZIndex = 26
+    cfgTitle.Text = "Configuracoes do Chat"; cfgTitle.ZIndex = 501
 
     -- Toggle BubbleChat
     local bubbleChatAtivo = false
@@ -2233,26 +2276,26 @@ local function criarChatHubGui()
 
     local function criarToggleCfg(parent, label, default, onChange)
         local row = Instance.new("Frame"); row.Parent = parent
-        row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1; row.ZIndex = 26
+        row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1; row.ZIndex = 501
         local lbl = Instance.new("TextLabel"); lbl.Parent = row
         lbl.BackgroundTransparency=1; lbl.Size=UDim2.new(1,-56,1,0)
         lbl.Font=Enum.Font.GothamMedium; lbl.TextSize=11
         lbl.TextColor3=Color3.fromRGB(200,200,210); lbl.Text=label
-        lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=26
+        lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=501
         local tbg = Instance.new("Frame"); tbg.Parent=row
         tbg.AnchorPoint=Vector2.new(1,0.5); tbg.Position=UDim2.new(1,0,0.5,0)
         tbg.Size=UDim2.new(0,40,0,20)
         tbg.BackgroundColor3=default and Color3.fromRGB(0,200,100) or Color3.fromRGB(55,55,60)
-        tbg.BorderSizePixel=0; tbg.ZIndex=27
+        tbg.BorderSizePixel=0; tbg.ZIndex=502
         local tbc2=Instance.new("UICorner"); tbc2.CornerRadius=UDim.new(1,0); tbc2.Parent=tbg
         local tkn=Instance.new("Frame"); tkn.Parent=tbg
         tkn.AnchorPoint=Vector2.new(0,0.5)
         tkn.Position=default and UDim2.new(0,22,0.5,0) or UDim2.new(0,2,0.5,0)
         tkn.Size=UDim2.new(0,16,0,16)
-        tkn.BackgroundColor3=Color3.fromRGB(255,255,255); tkn.BorderSizePixel=0; tkn.ZIndex=28
+        tkn.BackgroundColor3=Color3.fromRGB(255,255,255); tkn.BorderSizePixel=0; tkn.ZIndex=503
         local tknc=Instance.new("UICorner"); tknc.CornerRadius=UDim.new(1,0); tknc.Parent=tkn
         local tbtn=Instance.new("TextButton"); tbtn.Parent=tbg
-        tbtn.Size=UDim2.new(1,0,1,0); tbtn.BackgroundTransparency=1; tbtn.Text=""; tbtn.ZIndex=29
+        tbtn.Size=UDim2.new(1,0,1,0); tbtn.BackgroundTransparency=1; tbtn.Text=""; tbtn.ZIndex=504
         local state = default
         tbtn.MouseButton1Click:Connect(function()
             state = not state
@@ -2714,9 +2757,15 @@ end)
 -- Variável global para confirmação de envio (usada nas configurações)
 local chatConfirmarEnvio = false
 
-local chatSection = createSection("ComitHub Chat")
+-- Seção do chat: usa createSection mas esconde o título padrão e coloca o nosso
+local chatSection = createSection("")  -- título vazio pois vamos customizar
 
--- Label vermelho "ComitHub Chat" + badge "Novo!" torto
+-- Remove o label padrão da section (primeiro TextLabel filho)
+for _, child in ipairs(chatSection:GetChildren()) do
+    if child:IsA("TextLabel") then child:Destroy(); break end
+end
+
+-- Linha com "ComitHub Chat" em vermelho + badge "Novo!" torto
 local chatHeaderRow = Instance.new("Frame")
 chatHeaderRow.Parent = chatSection
 chatHeaderRow.Size = UDim2.new(1,0,0,22)
@@ -2726,9 +2775,9 @@ local chatRedLabel = Instance.new("TextLabel")
 chatRedLabel.Parent = chatHeaderRow
 chatRedLabel.BackgroundTransparency = 1
 chatRedLabel.Position = UDim2.new(0,0,0,0)
-chatRedLabel.Size = UDim2.new(0,120,1,0)
+chatRedLabel.Size = UDim2.new(0,130,1,0)
 chatRedLabel.Font = Enum.Font.GothamBold
-chatRedLabel.TextSize = 13
+chatRedLabel.TextSize = 14
 chatRedLabel.TextXAlignment = Enum.TextXAlignment.Left
 chatRedLabel.TextColor3 = Color3.fromRGB(220,50,50)
 chatRedLabel.Text = "ComitHub Chat"
@@ -2737,16 +2786,16 @@ local chatNovoBadge = Instance.new("TextLabel")
 chatNovoBadge.Parent = chatHeaderRow
 chatNovoBadge.BackgroundColor3 = Color3.fromRGB(220,50,50)
 chatNovoBadge.BorderSizePixel = 0
-chatNovoBadge.Position = UDim2.new(0,124,0,2)
-chatNovoBadge.Size = UDim2.new(0,36,0,16)
+chatNovoBadge.Position = UDim2.new(0,134,0,1)
+chatNovoBadge.Size = UDim2.new(0,38,0,17)
 chatNovoBadge.Font = Enum.Font.GothamBold
 chatNovoBadge.TextSize = 9
 chatNovoBadge.TextColor3 = Color3.fromRGB(255,255,255)
 chatNovoBadge.Text = "Novo!"
-chatNovoBadge.Rotation = -12
+chatNovoBadge.Rotation = -10
 local nbc2 = Instance.new("UICorner"); nbc2.CornerRadius = UDim.new(0,4); nbc2.Parent = chatNovoBadge
 
--- Toggle confirmação de envio nas configurações
+-- Toggle confirmação de envio nas configurações do hub principal
 criarRowToggle(sScroll, "Confirmar antes de enviar",
     "Pede confirmacao ao enviar mensagem pelo Chat Hub",
     11, false, function(state)
