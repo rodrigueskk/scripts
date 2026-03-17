@@ -763,24 +763,50 @@ end
 local function capturarTamanhosOriginais(vehicle)
     local partes = encontrarPartesRodas(vehicle)
     wheelPartsOrig = {}
+    local vehCF = vehicle:GetPivot()
     for _, p in ipairs(partes) do
-        wheelPartsOrig[p] = p.Size
+        wheelPartsOrig[p] = {
+            size    = p.Size,
+            cframe  = p.CFrame,
+            localCF = vehCF:ToObjectSpace(p.CFrame),
+        }
     end
     wheelModels = partes
     return #partes > 0
 end
 
 local function aplicarEscalaRodas(fator)
-    for part, origSize in pairs(wheelPartsOrig) do
+    local vehicle = getVehicle()
+    local seat = vehicle and getVehicleSeat(vehicle)
+    local savedVel    = seat and seat.AssemblyLinearVelocity
+    local savedAngVel = seat and seat.AssemblyAngularVelocity
+
+    for part, origData in pairs(wheelPartsOrig) do
         if part and part.Parent then
             pcall(function()
-                part.Size = origSize * fator
+                local origSize = origData.size
+                local newSize  = origSize * fator
+
+                if vehicle then
+                    local vehCF   = vehicle:GetPivot()
+                    local worldCF = vehCF * origData.localCF
+                    part.Size   = newSize
+                    part.CFrame = worldCF
+                else
+                    part.Size   = newSize
+                    part.CFrame = origData.cframe
+                end
             end)
         end
     end
-end
 
-local wheelModels = {}
+    if seat and savedVel then
+        pcall(function()
+            seat.AssemblyLinearVelocity  = savedVel
+            seat.AssemblyAngularVelocity = savedAngVel
+        end)
+    end
+end
 
 local wheelSizeSlider = createSlider(wheelSizeSection, {
     Title   = "Tamanho das Rodas",
