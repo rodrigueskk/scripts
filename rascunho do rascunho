@@ -1102,24 +1102,311 @@ local rejoinSection = createSection("Servidor")
 createButton(rejoinSection, "Rejoin Rápido", function()
     mostrarToast("Reconectando...")
     task.wait(0.3)
-    -- Método mais confiável em executores
-    local ok = false
+    -- Método 1: via teleport ao mesmo servidor
     pcall(function()
-        local TS = game:GetService("TeleportService")
-        TS:TeleportToPlaceInstance(game.PlaceId, game.JobId)
-        ok = true
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
     end)
-    if not ok then
-        pcall(function()
-            game:GetService("TeleportService"):Teleport(game.PlaceId)
-        end)
-    end
+    task.wait(0.5)
+    -- Método 2: kickar localmente (funciona na maioria dos executores)
+    pcall(function()
+        game:GetService("Players").LocalPlayer:Kick("Rejoin")
+    end)
+    task.wait(0.3)
+    -- Método 3: teleport simples
+    pcall(function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId)
+    end)
 end)
 
 createButton(rejoinSection, "Copiar Link do Servidor", function()
     local link = "roblox://experiences/start?placeId=" .. game.PlaceId .. "&gameInstanceId=" .. game.JobId
     pcall(function() setclipboard(link) end)
     mostrarToast("Link copiado!")
+end)
+
+-- ============================================================
+-- SEÇÃO: PINTURA DO CARRO
+-- Usa os ChangeColorEvent da GarageCustomization (igual à oficina)
+-- Caminho: Workspace.GarageCustomization.GarageEntrance.OpenGarageScript
+--          .GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
+-- ============================================================
+local paintSection = createSection("Pintura do Carro")
+
+local paintInfo = Instance.new("TextLabel")
+paintInfo.Parent = paintSection
+paintInfo.BackgroundTransparency = 1
+paintInfo.Size = UDim2.new(1, 0, 0, 14)
+paintInfo.Font = Enum.Font.Gotham
+paintInfo.TextSize = 11
+paintInfo.TextXAlignment = Enum.TextXAlignment.Left
+paintInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
+paintInfo.Text = "Entre no carro antes de aplicar"
+
+-- Mapeamento das abas para os nomes dos ChangeColorEvent na GarageCustomization
+-- Visto no console: GarageMenus.Main.Tabs.Body / Body2 / Body3 / Rims
+local paintAbas    = {"Body", "Body2", "Body3", "Rims"}
+local paintAbaLabel = {"Cor Primaria", "Cor Secundaria", "Cor Terciaria", "Calotas"}
+local paintAbaSel  = "Body"
+
+-- Row de abas
+local abaRow = Instance.new("Frame")
+abaRow.Parent = paintSection
+abaRow.Size = UDim2.new(1, 0, 0, 28)
+abaRow.BackgroundTransparency = 1
+local abaList = Instance.new("UIListLayout"); abaList.Parent = abaRow
+abaList.FillDirection = Enum.FillDirection.Horizontal
+abaList.Padding = UDim.new(0,3); abaList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local abasBtns = {}
+local function atualizarAbasBtns()
+    for aba, btn in pairs(abasBtns) do
+        btn.BackgroundColor3 = aba == paintAbaSel
+            and Color3.fromRGB(50,80,160) or Color3.fromRGB(32,32,36)
+        btn.TextColor3 = aba == paintAbaSel
+            and Color3.fromRGB(255,255,255) or Color3.fromRGB(160,160,165)
+    end
+end
+
+for i, aba in ipairs(paintAbas) do
+    local abtn = Instance.new("TextButton")
+    abtn.Parent = abaRow
+    abtn.Size = UDim2.new(0.25,-3,1,0)
+    abtn.BackgroundColor3 = Color3.fromRGB(32,32,36)
+    abtn.BorderSizePixel = 0
+    abtn.Font = Enum.Font.GothamBold
+    abtn.TextSize = 9
+    abtn.TextScaled = true
+    abtn.TextColor3 = Color3.fromRGB(160,160,165)
+    abtn.Text = paintAbaLabel[i]
+    abtn.AutoButtonColor = false
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = abtn
+    abasBtns[aba] = abtn
+    abtn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
+        paintAbaSel = aba
+        atualizarAbasBtns()
+    end)
+end
+atualizarAbasBtns()
+
+-- Preview + sliders R,G,B
+local paintR, paintG, paintB = 255, 0, 0
+local paintRgbAtivo = false
+local paintRgbConn  = nil
+local paintRgbHue   = 0
+
+local paintPreviewRow = Instance.new("Frame")
+paintPreviewRow.Parent = paintSection
+paintPreviewRow.Size = UDim2.new(1,0,0,22)
+paintPreviewRow.BackgroundTransparency = 1
+local ppLbl = Instance.new("TextLabel"); ppLbl.Parent = paintPreviewRow
+ppLbl.BackgroundTransparency=1; ppLbl.Size=UDim2.new(0,54,1,0)
+ppLbl.Font=Enum.Font.Gotham; ppLbl.TextSize=11
+ppLbl.TextColor3=Color3.fromRGB(160,160,165); ppLbl.Text="Preview:"
+ppLbl.TextXAlignment=Enum.TextXAlignment.Left
+local paintPreview = Instance.new("Frame")
+paintPreview.Parent = paintPreviewRow
+paintPreview.Position = UDim2.new(0,58,0,2)
+paintPreview.Size = UDim2.new(1,-58,1,-4)
+paintPreview.BackgroundColor3 = Color3.fromRGB(255,0,0)
+paintPreview.BorderSizePixel = 0
+local ppc2 = Instance.new("UICorner"); ppc2.CornerRadius=UDim.new(0,5); ppc2.Parent=paintPreview
+
+local function atualizarPreviewPaint()
+    paintPreview.BackgroundColor3 = Color3.fromRGB(paintR,paintG,paintB)
+end
+
+local function criarSliderPaint(parent, titulo, getVal, setVal)
+    local holder = Instance.new("Frame"); holder.Parent=parent
+    holder.Size=UDim2.new(1,0,0,24); holder.BackgroundTransparency=1
+    local lbl = Instance.new("TextLabel"); lbl.Parent=holder
+    lbl.BackgroundTransparency=1; lbl.Size=UDim2.new(0,16,1,0)
+    lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11
+    lbl.TextColor3=Color3.fromRGB(180,180,185); lbl.Text=titulo
+    local valLbl = Instance.new("TextLabel"); valLbl.Parent=holder
+    valLbl.BackgroundTransparency=1; valLbl.Size=UDim2.new(0,28,1,0)
+    valLbl.Position=UDim2.new(1,-28,0,0); valLbl.Font=Enum.Font.GothamBold
+    valLbl.TextSize=11; valLbl.TextColor3=Color3.fromRGB(255,255,255)
+    valLbl.TextXAlignment=Enum.TextXAlignment.Right
+    local sFrame = Instance.new("Frame"); sFrame.Parent=holder
+    sFrame.Position=UDim2.new(0,20,0.5,-3); sFrame.Size=UDim2.new(1,-52,0,6)
+    sFrame.BackgroundColor3=Color3.fromRGB(45,45,50); sFrame.BorderSizePixel=0
+    local sfc=Instance.new("UICorner"); sfc.CornerRadius=UDim.new(1,0); sfc.Parent=sFrame
+    local fill=Instance.new("Frame"); fill.Parent=sFrame
+    fill.BackgroundColor3=tema.quaternaria; fill.BorderSizePixel=0
+    local fc=Instance.new("UICorner"); fc.CornerRadius=UDim.new(1,0); fc.Parent=fill
+    table.insert(allSliderFills,fill)
+    local knob=Instance.new("Frame"); knob.Parent=sFrame
+    knob.AnchorPoint=Vector2.new(0.5,0.5); knob.Size=UDim2.new(0,14,0,14)
+    knob.BackgroundColor3=tema.quaternaria; knob.BorderSizePixel=0
+    local kc=Instance.new("UICorner"); kc.CornerRadius=UDim.new(1,0); kc.Parent=knob
+    table.insert(allSliderKnobs,knob)
+    local cur=getVal()
+    local function refresh()
+        local pos=cur/255; fill.Size=UDim2.new(pos,0,1,0)
+        knob.Position=UDim2.new(pos,0,0.5,0); valLbl.Text=tostring(cur)
+    end
+    refresh()
+    local drag=false
+    sFrame.InputBegan:Connect(function(inp)
+        if settingsPanelVisivel then return end
+        if inp.UserInputType==Enum.UserInputType.MouseButton1 then
+            drag=true
+            cur=math.clamp(math.floor(((inp.Position.X-sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255),0,255)
+            setVal(cur); refresh(); atualizarPreviewPaint()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1 then drag=false end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if drag and inp.UserInputType==Enum.UserInputType.MouseMovement then
+            cur=math.clamp(math.floor(((inp.Position.X-sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255),0,255)
+            setVal(cur); refresh(); atualizarPreviewPaint()
+        end
+    end)
+end
+
+criarSliderPaint(paintSection,"R",function() return paintR end,function(v) paintR=v end)
+criarSliderPaint(paintSection,"G",function() return paintG end,function(v) paintG=v end)
+criarSliderPaint(paintSection,"B",function() return paintB end,function(v) paintB=v end)
+
+-- Busca o ChangeColorEvent da GarageCustomization para uma aba específica
+local function getChangeColorEvent(aba)
+    -- Caminho visto no console:
+    -- Workspace.GarageCustomization.GarageEntrance.OpenGarageScript
+    -- .GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
+    local gc = workspace:FindFirstChild("GarageCustomization")
+    if not gc then return nil end
+    local ge = gc:FindFirstChild("GarageEntrance")
+    if not ge then return nil end
+    local ogs = ge:FindFirstChild("OpenGarageScript")
+    if not ogs then return nil end
+    local gm = ogs:FindFirstChild("GarageMenus")
+    if not gm then return nil end
+    local main = gm:FindFirstChild("Main")
+    if not main then return nil end
+    local tabs = main:FindFirstChild("Tabs")
+    if not tabs then return nil end
+    local tab = tabs:FindFirstChild(aba)
+    if not tab then return nil end
+    return tab:FindFirstChild("ChangeColorEvent")
+end
+
+-- Aplica cor via RemoteEvent da oficina (igual entrar na oficina e mudar)
+local function aplicarCorOficina(aba, cor)
+    local re = getChangeColorEvent(aba)
+    if re and re:IsA("RemoteEvent") then
+        re:FireServer(cor)
+        return true
+    end
+    -- Fallback: busca em todo o workspace por ChangeColorEvent com pai = aba
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("RemoteEvent") and obj.Name == "ChangeColorEvent" then
+            if obj.Parent and obj.Parent.Name == aba then
+                obj:FireServer(cor)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+createButton(paintSection, "Aplicar na Aba Selecionada", function()
+    local cor = Color3.fromRGB(paintR,paintG,paintB)
+    local ok = aplicarCorOficina(paintAbaSel, cor)
+    if ok then
+        mostrarToast("Cor aplicada: " .. paintAbaSel)
+    else
+        mostrarToast("GarageCustomization nao encontrada")
+    end
+end)
+
+createButton(paintSection, "Aplicar em Todas as Abas", function()
+    local cor = Color3.fromRGB(paintR,paintG,paintB)
+    local count = 0
+    for _, aba in ipairs(paintAbas) do
+        if aplicarCorOficina(aba, cor) then count = count + 1 end
+    end
+    mostrarToast(count > 0 and ("Aplicado em " .. count .. " abas") or "Nao encontrado")
+end)
+
+-- RGB
+local rgbBtn = createButton(paintSection, "RGB: OFF", function() end)
+
+local function pararRGB()
+    paintRgbAtivo = false
+    if paintRgbConn then paintRgbConn:Disconnect(); paintRgbConn = nil end
+    rgbBtn.Text = "RGB: OFF"
+    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(32,32,36),
+        TextColor3 = Color3.fromRGB(255,255,255)
+    }):Play()
+end
+
+rgbBtn.MouseButton1Click:Connect(function()
+    if paintRgbAtivo then pararRGB(); return end
+    paintRgbAtivo = true
+    paintRgbHue   = 0
+    rgbBtn.Text   = "RGB: ON"
+    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(160,0,200),
+        TextColor3 = Color3.fromRGB(255,255,255)
+    }):Play()
+    mostrarToast("RGB ativado!")
+
+    local timer = 0
+    paintRgbConn = RunService.Stepped:Connect(function(_, dt)
+        if not paintRgbAtivo then return end
+        timer = timer + dt
+        if timer < 0.08 then return end
+        timer = 0
+        paintRgbHue = (paintRgbHue + 0.006) % 1
+        local cor = Color3.fromHSV(paintRgbHue, 1, 1)
+        paintPreview.BackgroundColor3 = cor
+        -- Aplica em todas as abas
+        for _, aba in ipairs(paintAbas) do
+            aplicarCorOficina(aba, cor)
+        end
+    end)
+end)
+
+-- ============================================================
+-- SEÇÃO: ANTI-VOO (mantém o carro no chão acima de 700km/h)
+-- ============================================================
+local antivooSection = createSection("Anti-Voo")
+
+local antivooAtivo = false
+local antivooBtn = createButton(antivooSection, "Anti-Voo: OFF", function() end)
+
+local antivooInfo = Instance.new("TextLabel")
+antivooInfo.Parent = antivooSection
+antivooInfo.BackgroundTransparency = 1
+antivooInfo.Size = UDim2.new(1, 0, 0, 28)
+antivooInfo.Font = Enum.Font.Gotham
+antivooInfo.TextSize = 10
+antivooInfo.TextXAlignment = Enum.TextXAlignment.Left
+antivooInfo.TextWrapped = true
+antivooInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
+antivooInfo.Text = "Mantém o carro no chão em altas velocidades limitando velocidade vertical"
+
+antivooBtn.MouseButton1Click:Connect(function()
+    antivooAtivo = not antivooAtivo
+    if antivooAtivo then
+        antivooBtn.Text = "Anti-Voo: ON"
+        TweenService:Create(antivooBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0,180,80),
+            TextColor3 = Color3.fromRGB(255,255,255)
+        }):Play()
+        mostrarToast("Anti-Voo ativado!")
+    else
+        antivooBtn.Text = "Anti-Voo: OFF"
+        TweenService:Create(antivooBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32,32,36),
+            TextColor3 = Color3.fromRGB(255,255,255)
+        }):Play()
+        mostrarToast("Anti-Voo desativado")
+    end
 end)
 
 -- ============================================================
@@ -1358,60 +1645,6 @@ createButton(paintSection, "Aplicar na Aba Selecionada", function()
     local vehicle = getVehicle()
     if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
     local cor = Color3.fromRGB(paintR, paintG, paintB)
-    local ok = aplicarCorAba(vehicle, cor, paintAbaSelecionada)
-    mostrarToast(ok and ("Cor aplicada: " .. paintAbaSelecionada) or "Nenhuma parte encontrada")
-end)
-
-createButton(paintSection, "Aplicar em Tudo", function()
-    local vehicle = getVehicle()
-    if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
-    local cor = Color3.fromRGB(paintR, paintG, paintB)
-    local ok = aplicarCorTudo(vehicle, cor)
-    mostrarToast(ok and "Cor aplicada em tudo!" or "Body nao encontrado")
-end)
-
--- RGB
-local rgbBtn = createButton(paintSection, "RGB: OFF", function() end)
-
-local function pararRGB()
-    paintRgbAtivo = false
-    if paintRgbConn then paintRgbConn:Disconnect(); paintRgbConn = nil end
-    rgbBtn.Text = "RGB: OFF"
-    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(32,32,36),
-        TextColor3 = Color3.fromRGB(255,255,255)
-    }):Play()
-end
-
-rgbBtn.MouseButton1Click:Connect(function()
-    if paintRgbAtivo then pararRGB(); return end
-    local vehicle = getVehicle()
-    if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
-
-    paintRgbAtivo = true
-    paintRgbHue   = 0
-    rgbBtn.Text   = "RGB: ON"
-    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(160, 0, 200),
-        TextColor3 = Color3.fromRGB(255,255,255)
-    }):Play()
-    mostrarToast("RGB ativado!")
-
-    local timer = 0
-    paintRgbConn = RunService.Stepped:Connect(function(_, dt)
-        if not paintRgbAtivo then return end
-        local v = getVehicle()
-        if not v then pararRGB(); return end
-        timer = timer + dt
-        if timer < 0.05 then return end
-        timer = 0
-        paintRgbHue = (paintRgbHue + 0.004) % 1
-        local cor = Color3.fromHSV(paintRgbHue, 1, 1)
-        paintPreview.BackgroundColor3 = cor
-        aplicarCorTudo(v, cor)
-    end)
-end)
-
 -- SEÇÃO: UTILITÁRIOS (Anti-Flip, ESP, FPS)
 -- ============================================================
 
@@ -2191,17 +2424,27 @@ RunService.Stepped:Connect(function(_, dt)
         applyTireGrip(vehicle, savedConfig.grip)
     end
 
-    -- Anti-Flip: detecta se o carro tombou e o endireita
+    -- Anti-Flip
     if antiFlipAtivo then
         local upVec = seat.CFrame.UpVector
-        -- Se o vetor "cima" do carro apontar para baixo (tombado)
         if upVec.Y < 0.3 then
             pcall(function()
-                -- Zera velocidade angular e reposiciona em pé
                 seat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 local pos = seat.Position
                 seat.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
                     * CFrame.Angles(0, math.atan2(seat.CFrame.LookVector.X, seat.CFrame.LookVector.Z), 0)
+            end)
+        end
+    end
+
+    -- Anti-Voo: zera velocidade vertical positiva em alta velocidade
+    if antivooAtivo then
+        local vel  = seat.AssemblyLinearVelocity
+        local velH = Vector3.new(vel.X, 0, vel.Z).Magnitude
+        -- Ativa acima de ~195 studs/s (≈700 km/h) quando o carro está subindo
+        if velH > 195 and vel.Y > 1 then
+            pcall(function()
+                seat.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
             end)
         end
     end
