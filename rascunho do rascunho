@@ -763,50 +763,24 @@ end
 local function capturarTamanhosOriginais(vehicle)
     local partes = encontrarPartesRodas(vehicle)
     wheelPartsOrig = {}
-    local vehCF = vehicle:GetPivot()
     for _, p in ipairs(partes) do
-        wheelPartsOrig[p] = {
-            size    = p.Size,
-            cframe  = p.CFrame,
-            localCF = vehCF:ToObjectSpace(p.CFrame),
-        }
+        wheelPartsOrig[p] = p.Size
     end
     wheelModels = partes
     return #partes > 0
 end
 
 local function aplicarEscalaRodas(fator)
-    local vehicle = getVehicle()
-    local seat = vehicle and getVehicleSeat(vehicle)
-    local savedVel    = seat and seat.AssemblyLinearVelocity
-    local savedAngVel = seat and seat.AssemblyAngularVelocity
-
-    for part, origData in pairs(wheelPartsOrig) do
+    for part, origSize in pairs(wheelPartsOrig) do
         if part and part.Parent then
             pcall(function()
-                local origSize = origData.size
-                local newSize  = origSize * fator
-
-                if vehicle then
-                    local vehCF   = vehicle:GetPivot()
-                    local worldCF = vehCF * origData.localCF
-                    part.Size   = newSize
-                    part.CFrame = worldCF
-                else
-                    part.Size   = newSize
-                    part.CFrame = origData.cframe
-                end
+                part.Size = origSize * fator
             end)
         end
     end
-
-    if seat and savedVel then
-        pcall(function()
-            seat.AssemblyLinearVelocity  = savedVel
-            seat.AssemblyAngularVelocity = savedAngVel
-        end)
-    end
 end
+
+local wheelModels = {}
 
 local wheelSizeSlider = createSlider(wheelSizeSection, {
     Title   = "Tamanho das Rodas",
@@ -2147,6 +2121,49 @@ local function isAmigo(targetPlayer)
     return ok and result
 end
 
+local function extrairTextoReal(msg)
+    local txt = ""
+    local bypassed = false
+
+    pcall(function() txt = msg.Text or "" end)
+
+    if txt == "" or txt:match("^[#%s]+$") then
+        local tentativas = {"Message", "RawText", "OriginalText", "FilteredText"}
+        for _, prop in ipairs(tentativas) do
+            pcall(function()
+                local val = msg[prop]
+                if val and val ~= "" and not val:match("^[#%s]+$") then
+                    txt = val
+                    bypassed = true
+                end
+            end)
+            if txt ~= "" and not txt:match("^[#%s]+$") then break end
+        end
+
+        if txt == "" or txt:match("^[#%s]+$") then
+            pcall(function()
+                local ts = msg.TextSource
+                if ts then
+                    local allProps = {"Text","Message","Content","RawMessage","ChatMessage"}
+                    for _, p in ipairs(allProps) do
+                        pcall(function()
+                            local v = ts[p]
+                            if v and v ~= "" and not v:match("^[#%s]+$") then
+                                txt = v
+                                bypassed = true
+                            end
+                        end)
+                        if txt ~= "" and not txt:match("^[#%s]+$") then break end
+                    end
+                end
+            end)
+        end
+    end
+
+    local isFiltered = txt:match("^[#%s]+$") or txt == ""
+    return txt, bypassed, isFiltered
+end
+
 local function capturarMsgBackground(msg)
     local sender = msg.TextSource
     if not sender then return end
@@ -2154,8 +2171,9 @@ local function capturarMsgBackground(msg)
     local nome = sP and sP.Name        or tostring(sender.UserId)
     local dn   = sP and sP.DisplayName or nome
     local ami  = sP and isAmigo(sP)    or false
-    local txt  = msg.Text              or ""
-    table.insert(chatMessages, {nome=nome, displayName=dn, mensagem=txt, isAmigo=ami})
+    local txt, bypassed, isFiltered = extrairTextoReal(msg)
+    if txt == "" then return end
+    table.insert(chatMessages, {nome=nome, displayName=dn, mensagem=txt, isAmigo=ami, bypassed=bypassed, isFiltered=isFiltered})
     if #chatMessages > 500 then table.remove(chatMessages, 1) end
 end
 
@@ -2610,7 +2628,15 @@ local function criarChatHubGui()
         local row = Instance.new("Frame")
         row.Parent = scroll; row.Size = UDim2.new(1,0,0,0)
         row.AutomaticSize = Enum.AutomaticSize.Y
-        row.BackgroundColor3 = dados.isAmigo and Color3.fromRGB(18,30,18) or Color3.fromRGB(20,20,25)
+        local bgColor
+        if dados.isAmigo then
+            bgColor = Color3.fromRGB(18,30,18)
+        elseif dados.bypassed then
+            bgColor = Color3.fromRGB(22,18,28)
+        else
+            bgColor = Color3.fromRGB(20,20,25)
+        end
+        row.BackgroundColor3 = bgColor
         row.BorderSizePixel = 0; row.ZIndex = 4
         local rowC = Instance.new("UICorner"); rowC.CornerRadius = UDim.new(0,8); rowC.Parent = row
         local rowP = Instance.new("UIPadding"); rowP.Parent = row
@@ -2646,6 +2672,16 @@ local function criarChatHubGui()
         msgLbl.TextColor3 = Color3.fromRGB(230,230,238)
         msgLbl.Text = dados.mensagem; msgLbl.TextWrapped = true
         msgLbl.TextXAlignment = Enum.TextXAlignment.Left; msgLbl.ZIndex = 6
+
+        if dados.bypassed then
+            local bypassLbl = Instance.new("TextLabel"); bypassLbl.Parent = row
+            bypassLbl.BackgroundTransparency = 1; bypassLbl.Size = UDim2.new(1,0,0,12)
+            bypassLbl.Font = Enum.Font.Gotham; bypassLbl.TextSize = 9
+            bypassLbl.TextColor3 = Color3.fromRGB(100,100,110)
+            bypassLbl.Text = "Bypass concluído"
+            bypassLbl.TextXAlignment = Enum.TextXAlignment.Left; bypassLbl.ZIndex = 6
+        end
+
         return row
     end
 
@@ -2691,8 +2727,9 @@ local function criarChatHubGui()
         local nome = sP and sP.Name        or tostring(sender.UserId)
         local dn   = sP and sP.DisplayName or nome
         local ami  = sP and isAmigo(sP)    or false
-        local txt  = msg.Text              or ""
-        local dados = {nome=nome, displayName=dn, mensagem=txt, isAmigo=ami}
+        local txt, bypassed, isFiltered = extrairTextoReal(msg)
+        if txt == "" then return end
+        local dados = {nome=nome, displayName=dn, mensagem=txt, isAmigo=ami, bypassed=bypassed, isFiltered=isFiltered}
         table.insert(chatMessages, dados)
         if #chatMessages > 500 then table.remove(chatMessages, 1) end
 
