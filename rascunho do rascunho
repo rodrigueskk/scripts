@@ -1641,11 +1641,6 @@ local function aplicarCorTudo(vehicle, cor)
     return count > 0
 end
 
-createButton(paintSection, "Aplicar na Aba Selecionada", function()
-    local vehicle = getVehicle()
-    if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
-    local cor = Color3.fromRGB(paintR, paintG, paintB)
--- SEÇÃO: UTILITÁRIOS (Anti-Flip, ESP, FPS)
 -- ============================================================
 
 -- ---- Anti-Flip ----
