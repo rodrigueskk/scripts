@@ -1101,29 +1101,33 @@ local rejoinSection = createSection("Servidor")
 
 createButton(rejoinSection, "Rejoin Rápido", function()
     mostrarToast("Reconectando...")
-    task.wait(0.8)
-    local TeleportService = game:GetService("TeleportService")
+    task.wait(0.5)
+    -- Método mais confiável: kickar e reconectar
     pcall(function()
-        TeleportService:Teleport(game.PlaceId, player)
+        game:GetService("TeleportService"):TeleportToPlaceInstance(
+            game.PlaceId, game.JobId, player
+        )
+    end)
+    -- Fallback
+    task.wait(0.5)
+    pcall(function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId)
     end)
 end)
 
 createButton(rejoinSection, "Copiar Link do Servidor", function()
-    local jobId = game.JobId
-    local placeId = game.PlaceId
-    local link = "roblox://experiences/start?placeId=" .. placeId .. "&gameInstanceId=" .. jobId
+    local link = "roblox://experiences/start?placeId=" .. game.PlaceId .. "&gameInstanceId=" .. game.JobId
     pcall(function() setclipboard(link) end)
     mostrarToast("Link copiado!")
 end)
 
 -- ============================================================
--- SEÇÃO: PINTURA DO CARRO (A-Chassis)
--- Usa os RemoteEvents ChangeColorEvent dentro do modelo do carro
--- Estrutura: Workspace.{username}sCar.GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
+-- SEÇÃO: PINTURA DO CARRO
+-- RemoteEvents encontrados no rbxm: PaintCar, SaveCarColor, ChangeEvent
+-- Partes coloridas: BaseParts chamadas "Paint" dentro do carro
 -- ============================================================
 local paintSection = createSection("Pintura do Carro")
 
--- Label info
 local paintInfo = Instance.new("TextLabel")
 paintInfo.Parent = paintSection
 paintInfo.BackgroundTransparency = 1
@@ -1132,92 +1136,42 @@ paintInfo.Font = Enum.Font.Gotham
 paintInfo.TextSize = 11
 paintInfo.TextXAlignment = Enum.TextXAlignment.Left
 paintInfo.TextColor3 = Color3.fromRGB(130, 130, 135)
-paintInfo.Text = "Pinta o seu carro atual (precisa estar no carro)"
+paintInfo.Text = "Entre no carro ou registre-o abaixo"
 
--- Abas de pintura disponíveis no A-Chassis
-local paintTabs = {"Body", "Body2", "Body3", "Rims"}
-local paintTabSelecionada = "Body"
-
--- Row de seleção de aba
-local tabRow = Instance.new("Frame")
-tabRow.Parent = paintSection
-tabRow.Size = UDim2.new(1, 0, 0, 28)
-tabRow.BackgroundTransparency = 1
-
-local tabRowList = Instance.new("UIListLayout")
-tabRowList.Parent = tabRow
-tabRowList.FillDirection = Enum.FillDirection.Horizontal
-tabRowList.Padding = UDim.new(0, 4)
-tabRowList.SortOrder = Enum.SortOrder.LayoutOrder
-
-local tabBotoes = {}
-local function atualizarTabBotoes()
-    for tab, btn in pairs(tabBotoes) do
-        if tab == paintTabSelecionada then
-            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            btn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
-            btn.TextColor3 = Color3.fromRGB(180, 180, 185)
-        end
-    end
-end
-
-for _, tabName in ipairs(paintTabs) do
-    local tbtn = Instance.new("TextButton")
-    tbtn.Parent = tabRow
-    tbtn.Size = UDim2.new(0, 60, 1, 0)
-    tbtn.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
-    tbtn.BorderSizePixel = 0
-    tbtn.Font = Enum.Font.GothamBold
-    tbtn.TextSize = 11
-    tbtn.TextColor3 = Color3.fromRGB(180, 180, 185)
-    tbtn.Text = tabName
-    tbtn.AutoButtonColor = false
-    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(0, 6); tbc.Parent = tbtn
-    tabBotoes[tabName] = tbtn
-    tbtn.MouseButton1Click:Connect(function()
-        if settingsPanelVisivel then return end
-        paintTabSelecionada = tabName
-        atualizarTabBotoes()
-    end)
-end
-atualizarTabBotoes()
-
--- Color picker: sliders R, G, B
-local paintCorAtual = Color3.fromRGB(255, 0, 0)
 local paintR, paintG, paintB = 255, 0, 0
+local paintRgbAtivo  = false
+local paintRgbConn   = nil
+local paintRgbHue    = 0
 
--- Preview da cor
+-- Preview
 local paintPreviewRow = Instance.new("Frame")
 paintPreviewRow.Parent = paintSection
 paintPreviewRow.Size = UDim2.new(1, 0, 0, 22)
 paintPreviewRow.BackgroundTransparency = 1
 
-local paintPreviewLabel = Instance.new("TextLabel")
-paintPreviewLabel.Parent = paintPreviewRow
-paintPreviewLabel.BackgroundTransparency = 1
-paintPreviewLabel.Size = UDim2.new(0, 60, 1, 0)
-paintPreviewLabel.Font = Enum.Font.GothamMedium
-paintPreviewLabel.TextSize = 11
-paintPreviewLabel.TextColor3 = Color3.fromRGB(160, 160, 165)
-paintPreviewLabel.Text = "Preview:"
-paintPreviewLabel.TextXAlignment = Enum.TextXAlignment.Left
+local paintPreviewLbl = Instance.new("TextLabel")
+paintPreviewLbl.Parent = paintPreviewRow
+paintPreviewLbl.BackgroundTransparency = 1
+paintPreviewLbl.Size = UDim2.new(0, 54, 1, 0)
+paintPreviewLbl.Font = Enum.Font.Gotham
+paintPreviewLbl.TextSize = 11
+paintPreviewLbl.TextColor3 = Color3.fromRGB(160,160,165)
+paintPreviewLbl.Text = "Preview:"
+paintPreviewLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local paintPreview = Instance.new("Frame")
 paintPreview.Parent = paintPreviewRow
-paintPreview.Position = UDim2.new(0, 64, 0, 2)
-paintPreview.Size = UDim2.new(1, -64, 1, -4)
-paintPreview.BackgroundColor3 = paintCorAtual
+paintPreview.Position = UDim2.new(0, 58, 0, 2)
+paintPreview.Size = UDim2.new(1, -58, 1, -4)
+paintPreview.BackgroundColor3 = Color3.fromRGB(255,0,0)
 paintPreview.BorderSizePixel = 0
-local ppc = Instance.new("UICorner"); ppc.CornerRadius = UDim.new(0, 5); ppc.Parent = paintPreview
+local ppc = Instance.new("UICorner"); ppc.CornerRadius = UDim.new(0,5); ppc.Parent = paintPreview
 
 local function atualizarPreviewPaint()
-    paintCorAtual = Color3.fromRGB(paintR, paintG, paintB)
-    paintPreview.BackgroundColor3 = paintCorAtual
+    paintPreview.BackgroundColor3 = Color3.fromRGB(paintR, paintG, paintB)
 end
 
--- Sliders R, G, B reutilizando criarSliderCor do painel de config
+-- Sliders RGB
 local function criarSliderPaint(parent, titulo, getVal, setVal)
     local holder = Instance.new("Frame")
     holder.Parent = parent
@@ -1225,20 +1179,20 @@ local function criarSliderPaint(parent, titulo, getVal, setVal)
     holder.BackgroundTransparency = 1
 
     local lbl = Instance.new("TextLabel"); lbl.Parent = holder
-    lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(0, 16, 1, 0)
+    lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(0,16,1,0)
     lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 11
     lbl.TextColor3 = Color3.fromRGB(180,180,185); lbl.Text = titulo
 
     local valLbl = Instance.new("TextLabel"); valLbl.Parent = holder
-    valLbl.BackgroundTransparency = 1; valLbl.Size = UDim2.new(0, 28, 1, 0)
-    valLbl.Position = UDim2.new(1, -28, 0, 0)
+    valLbl.BackgroundTransparency = 1; valLbl.Size = UDim2.new(0,28,1,0)
+    valLbl.Position = UDim2.new(1,-28,0,0)
     valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 11
     valLbl.TextColor3 = Color3.fromRGB(255,255,255)
     valLbl.TextXAlignment = Enum.TextXAlignment.Right
 
     local sFrame = Instance.new("Frame"); sFrame.Parent = holder
-    sFrame.Position = UDim2.new(0, 20, 0.5, -3)
-    sFrame.Size = UDim2.new(1, -52, 0, 6)
+    sFrame.Position = UDim2.new(0,20,0.5,-3)
+    sFrame.Size = UDim2.new(1,-52,0,6)
     sFrame.BackgroundColor3 = Color3.fromRGB(45,45,50); sFrame.BorderSizePixel = 0
     local sfc = Instance.new("UICorner"); sfc.CornerRadius = UDim.new(1,0); sfc.Parent = sFrame
 
@@ -1255,9 +1209,9 @@ local function criarSliderPaint(parent, titulo, getVal, setVal)
 
     local cur = getVal()
     local function refresh()
-        local pos = cur / 255
-        fill.Size = UDim2.new(pos, 0, 1, 0)
-        knob.Position = UDim2.new(pos, 0, 0.5, 0)
+        local pos = cur/255
+        fill.Size = UDim2.new(pos,0,1,0)
+        knob.Position = UDim2.new(pos,0,0.5,0)
         valLbl.Text = tostring(cur)
     end
     refresh()
@@ -1267,7 +1221,7 @@ local function criarSliderPaint(parent, titulo, getVal, setVal)
         if settingsPanelVisivel then return end
         if inp.UserInputType == Enum.UserInputType.MouseButton1 then
             drag = true
-            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            cur = math.clamp(math.floor(((inp.Position.X-sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255),0,255)
             setVal(cur); refresh(); atualizarPreviewPaint()
         end
     end)
@@ -1276,131 +1230,155 @@ local function criarSliderPaint(parent, titulo, getVal, setVal)
     end)
     UserInputService.InputChanged:Connect(function(inp)
         if drag and inp.UserInputType == Enum.UserInputType.MouseMovement then
-            cur = math.clamp(math.floor(((inp.Position.X - sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255), 0, 255)
+            cur = math.clamp(math.floor(((inp.Position.X-sFrame.AbsolutePosition.X)/sFrame.AbsoluteSize.X)*255),0,255)
             setVal(cur); refresh(); atualizarPreviewPaint()
         end
     end)
 end
 
-criarSliderPaint(paintSection, "R", function() return paintR end, function(v) paintR = v end)
-criarSliderPaint(paintSection, "G", function() return paintG end, function(v) paintG = v end)
-criarSliderPaint(paintSection, "B", function() return paintB end, function(v) paintB = v end)
+criarSliderPaint(paintSection, "R", function() return paintR end, function(v) paintR=v end)
+criarSliderPaint(paintSection, "G", function() return paintG end, function(v) paintG=v end)
+criarSliderPaint(paintSection, "B", function() return paintB end, function(v) paintB=v end)
 
--- Aplica a cor via RemoteEvent ChangeColorEvent (visível para todos)
-createButton(paintSection, "Aplicar Cor", function()
+-- Função que aplica cor no carro via todas as abordagens conhecidas
+local function aplicarCorNoCarro(vehicle, cor)
+    if not vehicle then return false end
+    local aplicado = false
+
+    -- Método 1: RemoteEvent "PaintCar" (encontrado no rbxm)
+    pcall(function()
+        local re = vehicle:FindFirstChild("PaintCar", true)
+        if re and re:IsA("RemoteEvent") then
+            re:FireServer(cor)
+            aplicado = true
+        end
+    end)
+
+    -- Método 2: RemoteEvent "ChangeEvent" (encontrado no rbxm)
+    if not aplicado then
+        pcall(function()
+            local re = vehicle:FindFirstChild("ChangeEvent", true)
+            if re and re:IsA("RemoteEvent") then
+                re:FireServer(cor)
+                aplicado = true
+            end
+        end)
+    end
+
+    -- Método 3: RemoteEvent "SaveCarColor" (encontrado no rbxm)
+    if not aplicado then
+        pcall(function()
+            local re = vehicle:FindFirstChild("SaveCarColor", true)
+            if re and re:IsA("RemoteEvent") then
+                re:FireServer(cor)
+                aplicado = true
+            end
+        end)
+    end
+
+    -- Método 4: pintura direta nas partes "Paint" do carro (local, visível para todos via física)
+    pcall(function()
+        for _, p in ipairs(vehicle:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name == "Paint" then
+                p.Color = cor
+                aplicado = true
+            end
+        end
+    end)
+
+    -- Método 5: Color3Value "BodyColorValue" (encontrado no rbxm)
+    pcall(function()
+        for _, v in ipairs(vehicle:GetDescendants()) do
+            if v:IsA("Color3Value") and v.Name == "BodyColorValue" then
+                v.Value = cor
+                aplicado = true
+            end
+        end
+    end)
+
+    return aplicado
+end
+
+createButton(paintSection, "Aplicar Cor no Carro", function()
     local vehicle = getVehicle()
     if not vehicle then
-        mostrarToast("Entre no seu carro primeiro!")
+        mostrarToast("Entre no carro primeiro!")
+        return
+    end
+    local cor = Color3.fromRGB(paintR, paintG, paintB)
+    local ok = aplicarCorNoCarro(vehicle, cor)
+    mostrarToast(ok and "Cor aplicada!" or "Nao foi possivel aplicar")
+end)
+
+-- Botão RGB (cicla por todas as cores do espectro)
+local rgbBtn = createButton(paintSection, "RGB: OFF", function() end)
+
+local function pararRGB()
+    paintRgbAtivo = false
+    if paintRgbConn then paintRgbConn:Disconnect(); paintRgbConn = nil end
+    rgbBtn.Text = "RGB: OFF"
+    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(32,32,36),
+        TextColor3 = Color3.fromRGB(255,255,255)
+    }):Play()
+end
+
+rgbBtn.MouseButton1Click:Connect(function()
+    if paintRgbAtivo then
+        pararRGB()
         return
     end
 
-    local cor = Color3.fromRGB(paintR, paintG, paintB)
-    local aplicado = false
+    local vehicle = getVehicle()
+    if not vehicle then
+        mostrarToast("Entre no carro primeiro!")
+        return
+    end
 
-    -- Método 1: RemoteEvent ChangeColorEvent dentro do modelo do carro
-    -- Caminho: vehicle.GarageEntrance.OpenGarageScript.GarageMenus.Main.Tabs.{aba}.ChangeColorEvent
-    pcall(function()
-        local garageEntrance = vehicle:FindFirstChild("GarageEntrance", true)
-        if garageEntrance then
-            local remotes = garageEntrance:FindFirstChild("OpenGarageScript", true)
-            if remotes then
-                local tabs = remotes:FindFirstChild("GarageMenus") and
-                             remotes.GarageMenus:FindFirstChild("Main") and
-                             remotes.GarageMenus.Main:FindFirstChild("Tabs")
-                if tabs then
-                    local tab = tabs:FindFirstChild(paintTabSelecionada)
-                    if tab then
-                        local re = tab:FindFirstChild("ChangeColorEvent")
-                        if re and re:IsA("RemoteEvent") then
-                            re:FireServer(cor)
-                            aplicado = true
-                        end
-                    end
-                end
-            end
-        end
+    paintRgbAtivo = true
+    paintRgbHue   = 0
+    rgbBtn.Text   = "RGB: ON"
+    TweenService:Create(rgbBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(180,0,180),
+        TextColor3 = Color3.fromRGB(255,255,255)
+    }):Play()
+
+    local timer = 0
+    paintRgbConn = RunService.Stepped:Connect(function(_, dt)
+        if not paintRgbAtivo then return end
+        local v = getVehicle()
+        if not v then pararRGB(); return end
+
+        timer = timer + dt
+        if timer < 0.05 then return end  -- atualiza a cada 50ms
+        timer = 0
+
+        paintRgbHue = (paintRgbHue + 0.005) % 1
+        local cor = Color3.fromHSV(paintRgbHue, 1, 1)
+        paintPreview.BackgroundColor3 = cor
+        aplicarCorNoCarro(v, cor)
     end)
 
-    -- Método 2: busca direta pelo nome ChangeColorEvent em todo o veículo
-    if not aplicado then
-        pcall(function()
-            for _, obj in ipairs(vehicle:GetDescendants()) do
-                if obj:IsA("RemoteEvent") and obj.Name == "ChangeColorEvent" then
-                    -- Só aciona o da aba selecionada se o pai tiver o nome certo
-                    if obj.Parent and obj.Parent.Name == paintTabSelecionada then
-                        obj:FireServer(cor)
-                        aplicado = true
-                        break
-                    end
-                end
-            end
-        end)
-    end
-
-    -- Método 3: busca qualquer ChangeColorEvent no workspace inteiro
-    if not aplicado then
-        pcall(function()
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj:IsA("RemoteEvent") and obj.Name == "ChangeColorEvent" then
-                    if obj.Parent and obj.Parent.Name == paintTabSelecionada then
-                        obj:FireServer(cor)
-                        aplicado = true
-                        break
-                    end
-                end
-            end
-        end)
-    end
-
-    -- Método 4: pintura direta nas partes do Body (visível localmente)
-    pcall(function()
-        local body = vehicle:FindFirstChild("Body")
-        if body then
-            for _, part in ipairs(body:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    local n = part.Name:upper()
-                    local deveColorir = false
-                    if paintTabSelecionada == "Body" and (n == "PAINT" or n == "BODY" or n == "CHASSIS") then
-                        deveColorir = true
-                    elseif paintTabSelecionada == "Body2" and n == "PAINT2" then
-                        deveColorir = true
-                    elseif paintTabSelecionada == "Body3" and n == "PAINT3" then
-                        deveColorir = true
-                    elseif paintTabSelecionada == "Rims" and (n == "RIM" or n == "RIMS" or n == "WHEEL") then
-                        deveColorir = true
-                    end
-                    if deveColorir then
-                        part.Color = cor
-                        aplicado = true
-                    end
-                end
-            end
-        end
-    end)
-
-    if aplicado then
-        mostrarToast("Cor aplicada: " .. paintTabSelecionada)
-    else
-        mostrarToast("Nao foi possivel aplicar a cor")
-    end
+    mostrarToast("RGB ativado!")
 end)
 
 -- ============================================================
--- SEÇÃO: VENHA CÁ (carro segue o jogador como um cachorro)
+-- SEÇÃO: VENHA CÁ (carro segue o jogador via CFrame)
 -- ============================================================
 local seguidorSection = createSection("Venha Ca")
 
-local seguidorAtivo    = false
-local seguidorVehicle  = nil
-local seguidorConn     = nil
+local seguidorAtivo   = false
+local seguidorVehicle = nil
+local seguidorConn    = nil
 
 local seguidorStatus = Instance.new("TextLabel")
 seguidorStatus.Parent = seguidorSection
 seguidorStatus.BackgroundTransparency = 1
-seguidorStatus.Size = UDim2.new(1, 0, 0, 14)
+seguidorStatus.Size = UDim2.new(1, 0, 0, 30)
 seguidorStatus.Font = Enum.Font.Gotham
 seguidorStatus.TextSize = 11
 seguidorStatus.TextXAlignment = Enum.TextXAlignment.Left
+seguidorStatus.TextWrapped = true
 seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
 seguidorStatus.Text = "Nenhum carro registrado"
 
@@ -1409,25 +1387,12 @@ local seguidorBtn = createButton(seguidorSection, "Venha Ca: OFF", function() en
 local function pararSeguidor()
     seguidorAtivo = false
     if seguidorConn then seguidorConn:Disconnect(); seguidorConn = nil end
-
-    -- Zera velocidade de todas as partes do carro
-    if seguidorVehicle and seguidorVehicle.Parent then
-        for _, p in ipairs(seguidorVehicle:GetDescendants()) do
-            if p:IsA("BasePart") and not p.Anchored then
-                pcall(function()
-                    p.AssemblyLinearVelocity  = Vector3.zero
-                    p.AssemblyAngularVelocity = Vector3.zero
-                end)
-            end
-        end
-    end
-
     seguidorStatus.Text = seguidorVehicle and ("Carro: " .. (seguidorVehicle.Name or "?")) or "Nenhum carro registrado"
-    seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
+    seguidorStatus.TextColor3 = Color3.fromRGB(130,130,135)
     seguidorBtn.Text = "Venha Ca: OFF"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(32, 32, 36),
-        TextColor3 = Color3.fromRGB(255, 255, 255)
+        BackgroundColor3 = Color3.fromRGB(32,32,36),
+        TextColor3 = Color3.fromRGB(255,255,255)
     }):Play()
 end
 
@@ -1436,7 +1401,6 @@ local function iniciarSeguidor()
         local v = getVehicle()
         if v then
             seguidorVehicle = v
-            seguidorStatus.Text = "Carro: " .. v.Name
         else
             mostrarToast("Registre um carro primeiro!")
             return
@@ -1445,14 +1409,16 @@ local function iniciarSeguidor()
 
     seguidorAtivo = true
     seguidorBtn.Text = "Venha Ca: ON"
+    seguidorStatus.Text = "Iniciando..."
+    seguidorStatus.TextColor3 = Color3.fromRGB(255,200,0)
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(0, 180, 80),
-        TextColor3 = Color3.fromRGB(255, 255, 255)
+        BackgroundColor3 = Color3.fromRGB(0,180,80),
+        TextColor3 = Color3.fromRGB(255,255,255)
     }):Play()
     mostrarToast("Venha Ca ativado!")
 
     local DIST_PARAR = 8
-    local SPEED      = 25  -- studs/s
+    local SPEED      = 30  -- studs/s
 
     seguidorConn = RunService.Stepped:Connect(function(_, dt)
         if not seguidorAtivo then return end
@@ -1460,7 +1426,7 @@ local function iniciarSeguidor()
         if not seguidorVehicle or not seguidorVehicle.Parent then
             pararSeguidor()
             seguidorStatus.Text = "Carro desapareceu"
-            seguidorStatus.TextColor3 = Color3.fromRGB(220, 80, 80)
+            seguidorStatus.TextColor3 = Color3.fromRGB(220,80,80)
             return
         end
 
@@ -1469,69 +1435,58 @@ local function iniciarSeguidor()
         local myHRP = myChar:FindFirstChild("HumanoidRootPart")
         if not myHRP then return end
 
-        -- Pausa se jogador estiver dentro do carro
+        -- Pausa se dentro do carro
         local hum = myChar:FindFirstChildOfClass("Humanoid")
         if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(seguidorVehicle) then
             seguidorStatus.Text = "Pausado (voce esta no carro)"
-            seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
+            seguidorStatus.TextColor3 = Color3.fromRGB(130,130,135)
             return
         end
 
-        -- Usa PrimaryPart ou qualquer BasePart como referência de posição
+        -- Encontra a parte principal do carro
         local rootPart = seguidorVehicle.PrimaryPart
         if not rootPart then
-            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
-                if p:IsA("BasePart") and not p.Anchored then
-                    rootPart = p; break
-                end
-            end
+            rootPart = seguidorVehicle:FindFirstChildWhichIsA("BasePart")
         end
         if not rootPart then return end
 
         local carPos    = rootPart.Position
-        local playerPos = myHRP.Position
-        local toPlayer  = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
-        local dist      = toPlayer.Magnitude
+        local targetPos = myHRP.Position
+        local toTarget  = Vector3.new(targetPos.X - carPos.X, 0, targetPos.Z - carPos.Z)
+        local dist      = toTarget.Magnitude
 
         if dist < DIST_PARAR then
             seguidorStatus.Text = "Aguardando... (" .. math.floor(dist) .. " studs)"
-            seguidorStatus.TextColor3 = Color3.fromRGB(0, 200, 100)
+            seguidorStatus.TextColor3 = Color3.fromRGB(0,200,100)
             return
         end
 
         seguidorStatus.Text = "Seguindo... (" .. math.floor(dist) .. " studs)"
-        seguidorStatus.TextColor3 = Color3.fromRGB(0, 180, 255)
+        seguidorStatus.TextColor3 = Color3.fromRGB(0,180,255)
 
-        -- Direção horizontal para o jogador
-        local dir    = toPlayer.Unit
-        -- Quanto mover nesse frame
-        local step   = math.min(SPEED * dt, dist - DIST_PARAR)
-        local offset = dir * step
+        local dir  = toTarget.Unit
+        local step = math.min(SPEED * dt, dist - DIST_PARAR)
 
         -- Rotação suave: carro olha para o jogador
-        local targetLook = CFrame.lookAt(rootPart.Position, rootPart.Position + dir)
-        local smoothRot  = rootPart.CFrame:Lerp(
-            CFrame.new(rootPart.Position) * (targetLook - targetLook.Position),
-            math.min(8 * dt, 1)
+        local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + dir)
+        local rotCF    = rootPart.CFrame:Lerp(
+            CFrame.new(rootPart.Position) * (targetCF - targetCF.Position),
+            math.min(10 * dt, 1)
         )
+        -- Nova posição: desloca na direção do jogador
+        local newCF = CFrame.new(rootPart.Position + dir * step) * (rotCF - rotCF.Position)
 
-        -- Move o modelo inteiro via SetPrimaryPartCFrame ou movendo cada peça
-        local moveCF = CFrame.new(offset)
-
+        -- Move o modelo inteiro
         if seguidorVehicle.PrimaryPart then
             pcall(function()
-                -- Nova CFrame: posição deslocada + rotação suave
-                local newCF = CFrame.new(rootPart.Position + offset) *
-                    (smoothRot - smoothRot.Position)
                 seguidorVehicle:SetPrimaryPartCFrame(newCF)
             end)
         else
-            -- Fallback: move cada BasePart individualmente
+            -- Fallback: desloca cada parte
+            local offset = CFrame.new(dir * step)
             for _, p in ipairs(seguidorVehicle:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    pcall(function()
-                        p.CFrame = p.CFrame * moveCF
-                    end)
+                    pcall(function() p.CFrame = p.CFrame * offset end)
                 end
             end
         end
@@ -1539,25 +1494,21 @@ local function iniciarSeguidor()
 end
 
 createButton(seguidorSection, "Registrar Carro Atual", function()
-    local vehicle = getVehicle()
-    if vehicle then
-        seguidorVehicle = vehicle
-        seguidorStatus.Text = "Carro: " .. vehicle.Name
-        mostrarToast("Registrado: " .. vehicle.Name)
+    local v = getVehicle()
+    if v then
+        seguidorVehicle = v
+        seguidorStatus.Text = "Registrado: " .. v.Name
+        seguidorStatus.TextColor3 = Color3.fromRGB(0,200,100)
+        mostrarToast("Registrado: " .. v.Name)
     else
         mostrarToast("Entre no carro primeiro!")
     end
 end)
 
 seguidorBtn.MouseButton1Click:Connect(function()
-    if seguidorAtivo then
-        pararSeguidor()
-    else
-        iniciarSeguidor()
-    end
+    if seguidorAtivo then pararSeguidor() else iniciarSeguidor() end
 end)
 
--- ============================================================
 -- SEÇÃO: UTILITÁRIOS (Anti-Flip, ESP, FPS)
 -- ============================================================
 
