@@ -244,10 +244,10 @@ end
 -- Flag para bloquear interações do hub quando configurações estão abertas
 local settingsPanelVisivel = false
 
--- Listas para aplicar tema
-local allSections    = {}   -- frames de seção (fundo)
+local allSections    = {}
 local allSliderKnobs = {}
 local allSliderFills = {}
+local allButtons     = {}
 
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenButton"
@@ -722,13 +722,11 @@ createSlider(wheelSection, {
 -- ============================================================
 local wheelSizeSection = createSection("Tamanho das Rodas")
 local wheelSizeFator   = 1.0
-local wheelModels      = {}  -- modelos de roda encontrados
-local wheelOrigScales  = {}  -- escala original de cada modelo
+local wheelPartsOrig   = {}
 
-local function encontrarModelosRodas(vehicle)
+local function encontrarPartesRodas(vehicle)
     if not vehicle then return {} end
-    local modelos = {}
-    -- Busca pasta Wheels/Wheel
+    local partes = {}
     local pastaNames = {"Wheels","wheels","Wheel","wheel","WHEELS","WHEEL"}
     local pasta = nil
     for _, n in ipairs(pastaNames) do
@@ -736,76 +734,53 @@ local function encontrarModelosRodas(vehicle)
         if pasta then break end
     end
     if pasta then
-        -- Cada filho da pasta é um modelo de roda
-        for _, child in ipairs(pasta:GetChildren()) do
-            if child:IsA("Model") or child:IsA("BasePart") or child:IsA("MeshPart") then
-                table.insert(modelos, child)
+        for _, desc in ipairs(pasta:GetDescendants()) do
+            if desc:IsA("BasePart") or desc:IsA("MeshPart") then
+                table.insert(partes, desc)
             end
         end
-        -- Se a pasta em si for um Model, usa ela
-        if #modelos == 0 and pasta:IsA("Model") then
-            table.insert(modelos, pasta)
-        end
-    end
-    -- Fallback: busca Models com nome de roda direto no veículo
-    if #modelos == 0 then
-        for _, obj in ipairs(vehicle:GetDescendants()) do
-            if obj:IsA("Model") then
-                local n = obj.Name:upper()
-                if tagDaRoda(n) then
-                    table.insert(modelos, obj)
+        if #partes == 0 then
+            for _, child in ipairs(pasta:GetChildren()) do
+                if child:IsA("BasePart") or child:IsA("MeshPart") then
+                    table.insert(partes, child)
                 end
             end
         end
     end
-    return modelos
+    if #partes == 0 then
+        for _, desc in ipairs(vehicle:GetDescendants()) do
+            if (desc:IsA("BasePart") or desc:IsA("MeshPart")) then
+                local n = desc.Name:upper()
+                if tagDaRoda(n) then
+                    table.insert(partes, desc)
+                end
+            end
+        end
+    end
+    return partes
 end
 
 local function capturarTamanhosOriginais(vehicle)
-    wheelModels     = encontrarModelosRodas(vehicle)
-    wheelOrigScales = {}
-    for _, m in ipairs(wheelModels) do
-        if m:IsA("Model") then
-            -- Captura o tamanho do PrimaryPart ou do maior BasePart
-            local ref = m.PrimaryPart
-            if not ref then
-                for _, p in ipairs(m:GetDescendants()) do
-                    if p:IsA("BasePart") then ref = p; break end
-                end
-            end
-            wheelOrigScales[m] = ref and ref.Size or Vector3.new(1,1,1)
-        else
-            -- É uma BasePart direto
-            wheelOrigScales[m] = m.Size
-        end
+    local partes = encontrarPartesRodas(vehicle)
+    wheelPartsOrig = {}
+    for _, p in ipairs(partes) do
+        wheelPartsOrig[p] = p.Size
     end
-    return #wheelModels > 0
+    wheelModels = partes
+    return #partes > 0
 end
 
 local function aplicarEscalaRodas(fator)
-    for _, m in ipairs(wheelModels) do
-        if m and m.Parent then
-            if m:IsA("Model") then
-                -- ScaleTo escala o modelo inteiro visível para todos
-                pcall(function()
-                    local orig = wheelOrigScales[m]
-                    if orig then
-                        -- Calcula fator relativo ao tamanho original
-                        local currentSize = m.PrimaryPart and m.PrimaryPart.Size or orig
-                        local ratio = orig.Magnitude > 0 and (fator * orig.Magnitude) / currentSize.Magnitude or fator
-                        m:ScaleTo(fator)
-                    end
-                end)
-            else
-                -- BasePart direta
-                pcall(function()
-                    local orig = wheelOrigScales[m]
-                    if orig then m.Size = orig * fator end
-                end)
-            end
+    for part, origSize in pairs(wheelPartsOrig) do
+        if part and part.Parent then
+            pcall(function()
+                part.Size = origSize * fator
+            end)
         end
     end
 end
+
+local wheelModels = {}
 
 local wheelSizeSlider = createSlider(wheelSizeSection, {
     Title   = "Tamanho das Rodas",
@@ -816,7 +791,7 @@ local wheelSizeSlider = createSlider(wheelSizeSection, {
     Format  = "%.2fx",
     Changed = function(v)
         wheelSizeFator = v
-        if #wheelModels > 0 then
+        if next(wheelPartsOrig) ~= nil then
             aplicarEscalaRodas(v)
         end
     end
@@ -827,9 +802,11 @@ createButton(wheelSizeSection, "Registrar Rodas do Carro Atual", function()
     if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
     local ok = capturarTamanhosOriginais(vehicle)
     if ok then
-        mostrarToast("Rodas registradas: " .. #wheelModels .. " encontradas")
+        local count = 0
+        for _ in pairs(wheelPartsOrig) do count = count + 1 end
+        mostrarToast("Rodas registradas: " .. count .. " partes")
     else
-        mostrarToast("Nenhum modelo de roda encontrado")
+        mostrarToast("Nenhuma roda encontrada")
     end
 end)
 
@@ -1302,26 +1279,20 @@ espiaList.FillDirection = Enum.FillDirection.Horizontal
 espiaList.Padding = UDim.new(0, 6)
 espiaList.SortOrder = Enum.SortOrder.LayoutOrder
 
-local function criarBotaoEspia(parent, texto, corFundo, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = parent
-    btn.Size = UDim2.new(0.5, -3, 1, 0)
-    btn.BackgroundColor3 = corFundo
-    btn.BorderSizePixel = 0
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Text = texto
-    btn.AutoButtonColor = false
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,10); c.Parent = btn
-    btn.MouseButton1Click:Connect(function()
-        if settingsPanelVisivel then return end
-        callback()
-    end)
-    return btn
-end
-
-criarBotaoEspia(espiaHolder, "Camera Espia", Color3.fromRGB(80, 40, 140), function()
+local btnView = Instance.new("TextButton")
+btnView.Parent = espiaHolder
+btnView.Size = UDim2.new(0.5, -3, 1, 0)
+btnView.BackgroundColor3 = tema.primaria
+btnView.BorderSizePixel = 0
+btnView.Font = Enum.Font.GothamBold
+btnView.TextSize = 12
+btnView.TextColor3 = tema.terciaria
+btnView.Text = "View"
+btnView.AutoButtonColor = false
+local bvc = Instance.new("UICorner"); bvc.CornerRadius = UDim.new(0,10); bvc.Parent = btnView
+table.insert(allButtons, btnView)
+btnView.MouseButton1Click:Connect(function()
+    if settingsPanelVisivel then return end
     local nome = playerInput.Text
     local textoBusca = (nome and nome ~= "") and nome or trackerAlvoNome
     if not textoBusca then
@@ -1336,19 +1307,26 @@ criarBotaoEspia(espiaHolder, "Camera Espia", Color3.fromRGB(80, 40, 140), functi
             end
         end
     end
-    if not alvo then
-        mostrarToast("Jogador nao encontrado")
-        return
-    end
+    if not alvo then mostrarToast("Jogador nao encontrado"); return end
     iniciarEspia(alvo)
 end)
 
-criarBotaoEspia(espiaHolder, "Parar Espia", Color3.fromRGB(140, 40, 40), function()
-    if espiaAtivo then
-        pararEspia()
-    else
-        mostrarToast("Camera espia nao esta ativa")
-    end
+local btnUnview = Instance.new("TextButton")
+btnUnview.Parent = espiaHolder
+btnUnview.Size = UDim2.new(0.5, -3, 1, 0)
+btnUnview.BackgroundColor3 = tema.primaria
+btnUnview.BorderSizePixel = 0
+btnUnview.Font = Enum.Font.GothamBold
+btnUnview.TextSize = 12
+btnUnview.TextColor3 = tema.terciaria
+btnUnview.Text = "Unview"
+btnUnview.AutoButtonColor = false
+local buvc = Instance.new("UICorner"); buvc.CornerRadius = UDim.new(0,10); buvc.Parent = btnUnview
+table.insert(allButtons, btnUnview)
+btnUnview.MouseButton1Click:Connect(function()
+    if settingsPanelVisivel then return end
+    if espiaAtivo then pararEspia()
+    else mostrarToast("Camera espia nao esta ativa") end
 end)
 
 local autoFarmAtivo = false
@@ -1667,6 +1645,12 @@ local function aplicarTema()
     -- Quaternária: knobs e fills de sliders
     for _, k in ipairs(allSliderKnobs) do pcall(function() k.BackgroundColor3 = tema.quaternaria end) end
     for _, f in ipairs(allSliderFills) do pcall(function() f.BackgroundColor3 = tema.quaternaria end) end
+    for _, b in ipairs(allButtons) do
+        pcall(function()
+            b.BackgroundColor3 = tema.primaria
+            b.TextColor3 = tema.terciaria
+        end)
+    end
 
     -- Aplica tema no chatHub se estiver aberto
     if chatHubGui and chatHubGui.Parent then
