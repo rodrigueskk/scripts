@@ -1054,6 +1054,125 @@ createButton(trackerSection, "Parar Rastreamento", function()
     end)
 end)
 
+-- ---- Câmera Espiã ----
+local espiaAtivo   = false
+local espiaAlvo    = nil
+local espiaConn    = nil
+local camOriginal  = nil
+
+local function pararEspia()
+    espiaAtivo = false
+    espiaAlvo  = nil
+    if espiaConn then espiaConn:Disconnect(); espiaConn = nil end
+    -- Restaura câmera original
+    pcall(function()
+        local cam = workspace.CurrentCamera
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = player.Character and player.Character:FindFirstChildOfClass("Humanoid") or nil
+    end)
+    mostrarToast("Camera espia desativada")
+end
+
+local function iniciarEspia(alvoPlayer)
+    if espiaAtivo then pararEspia() end
+
+    local alvoChar = alvoPlayer.Character
+    if not alvoChar then
+        mostrarToast("Personagem do alvo nao encontrado")
+        return
+    end
+    local alvoHRP = alvoChar:FindFirstChild("HumanoidRootPart")
+    if not alvoHRP then
+        mostrarToast("HumanoidRootPart nao encontrado")
+        return
+    end
+
+    espiaAtivo = true
+    espiaAlvo  = alvoPlayer
+
+    local cam = workspace.CurrentCamera
+    cam.CameraType = Enum.CameraType.Scriptable
+
+    espiaConn = RunService.RenderStepped:Connect(function()
+        if not espiaAtivo then return end
+        if not espiaAlvo or not espiaAlvo.Character then
+            pararEspia(); return
+        end
+        local hrp = espiaAlvo.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        -- Posiciona câmera atrás e acima do alvo
+        local cf = hrp.CFrame
+        local camPos = cf.Position
+            + cf.LookVector * -8
+            + Vector3.new(0, 3, 0)
+        cam.CFrame = CFrame.new(camPos, hrp.Position + Vector3.new(0, 1, 0))
+    end)
+
+    mostrarToast("Espionando: " .. alvoPlayer.DisplayName)
+end
+
+-- Botões de câmera espiã no mesmo campo de input do tracker
+local espiaHolder = Instance.new("Frame")
+espiaHolder.Parent = trackerSection
+espiaHolder.Size = UDim2.new(1, 0, 0, 34)
+espiaHolder.BackgroundTransparency = 1
+
+local espiaList = Instance.new("UIListLayout")
+espiaList.Parent = espiaHolder
+espiaList.FillDirection = Enum.FillDirection.Horizontal
+espiaList.Padding = UDim.new(0, 6)
+espiaList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function criarBotaoEspia(parent, texto, corFundo, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(0.5, -3, 1, 0)
+    btn.BackgroundColor3 = corFundo
+    btn.BorderSizePixel = 0
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = texto
+    btn.AutoButtonColor = false
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,10); c.Parent = btn
+    btn.MouseButton1Click:Connect(function()
+        if settingsPanelVisivel then return end
+        callback()
+    end)
+    return btn
+end
+
+criarBotaoEspia(espiaHolder, "Camera Espia", Color3.fromRGB(80, 40, 140), function()
+    local nome = playerInput.Text
+    local textoBusca = (nome and nome ~= "") and nome or trackerAlvoNome
+    if not textoBusca then
+        mostrarToast("Digite o nome ou ative o tracker primeiro")
+        return
+    end
+    local alvo = buscarJogador(textoBusca)
+    if not alvo then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and (p.Name:lower() == textoBusca:lower() or p.DisplayName:lower() == textoBusca:lower()) then
+                alvo = p; break
+            end
+        end
+    end
+    if not alvo then
+        mostrarToast("Jogador nao encontrado")
+        return
+    end
+    iniciarEspia(alvo)
+end)
+
+criarBotaoEspia(espiaHolder, "Parar Espia", Color3.fromRGB(140, 40, 40), function()
+    if espiaAtivo then
+        pararEspia()
+    else
+        mostrarToast("Camera espia nao esta ativa")
+    end
+end)
+
 local autoFarmAtivo = false
 local autoFarmDir   = 1
 local autoFarmConn  = nil
@@ -1138,20 +1257,18 @@ local rejoinSection = createSection("Servidor")
 createButton(rejoinSection, "Rejoin Rápido", function()
     mostrarToast("Reconectando...")
     task.wait(0.3)
-    -- Método 1: via teleport ao mesmo servidor
-    pcall(function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
-    end)
-    task.wait(0.5)
-    -- Método 2: kickar localmente (funciona na maioria dos executores)
-    pcall(function()
-        game:GetService("Players").LocalPlayer:Kick("Rejoin")
-    end)
-    task.wait(0.3)
-    -- Método 3: teleport simples
-    pcall(function()
-        game:GetService("TeleportService"):Teleport(game.PlaceId)
-    end)
+    -- Xeno: função nativa de reconexão
+    if reconnect then
+        reconnect()
+    elseif game.PlaceId then
+        pcall(function()
+            game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+        end)
+        task.wait(0.5)
+        pcall(function()
+            game:GetService("TeleportService"):Teleport(game.PlaceId)
+        end)
+    end
 end)
 
 createButton(rejoinSection, "Copiar Link do Servidor", function()
