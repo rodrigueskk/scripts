@@ -1443,26 +1443,16 @@ local function iniciarSeguidor()
         end
     end
 
-    local seat = getVehicleSeat(seguidorVehicle)
-    if not seat then
-        mostrarToast("VehicleSeat nao encontrado!")
-        return
-    end
-
     seguidorAtivo = true
     seguidorBtn.Text = "Venha Ca: ON"
     TweenService:Create(seguidorBtn, TweenInfo.new(0.15), {
         BackgroundColor3 = Color3.fromRGB(0, 180, 80),
         TextColor3 = Color3.fromRGB(255, 255, 255)
     }):Play()
-
-    seguidorStatus.Text = "Iniciando..."
-    seguidorStatus.TextColor3 = Color3.fromRGB(255, 200, 0)
     mostrarToast("Venha Ca ativado!")
 
-    local DIST_PARAR  = 8    -- studs para parar
-    local VELOCIDADE  = 40   -- studs/s de deslocamento
-    local ROT_SPEED   = 6    -- velocidade de rotação
+    local DIST_PARAR = 8
+    local SPEED      = 25  -- studs/s
 
     seguidorConn = RunService.Stepped:Connect(function(_, dt)
         if not seguidorAtivo then return end
@@ -1475,78 +1465,76 @@ local function iniciarSeguidor()
         end
 
         local myChar = player.Character
-        if not myChar then
-            seguidorStatus.Text = "Aguardando personagem..."
-            return
-        end
+        if not myChar then return end
         local myHRP = myChar:FindFirstChild("HumanoidRootPart")
         if not myHRP then return end
 
-        -- Pausa se jogador estiver no carro
+        -- Pausa se jogador estiver dentro do carro
         local hum = myChar:FindFirstChildOfClass("Humanoid")
         if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(seguidorVehicle) then
             seguidorStatus.Text = "Pausado (voce esta no carro)"
             seguidorStatus.TextColor3 = Color3.fromRGB(130, 130, 135)
-            -- Zera movimentos
-            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
-                if p:IsA("BasePart") and not p.Anchored then
-                    pcall(function() p.AssemblyLinearVelocity = Vector3.zero end)
-                end
-            end
             return
         end
 
-        local seat2 = getVehicleSeat(seguidorVehicle)
-        if not seat2 then return end
+        -- Usa PrimaryPart ou qualquer BasePart como referência de posição
+        local rootPart = seguidorVehicle.PrimaryPart
+        if not rootPart then
+            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+                if p:IsA("BasePart") and not p.Anchored then
+                    rootPart = p; break
+                end
+            end
+        end
+        if not rootPart then return end
 
-        local carPos    = seat2.Position
+        local carPos    = rootPart.Position
         local playerPos = myHRP.Position
         local toPlayer  = Vector3.new(playerPos.X - carPos.X, 0, playerPos.Z - carPos.Z)
         local dist      = toPlayer.Magnitude
 
         if dist < DIST_PARAR then
-            -- Para o carro zerando velocidade em todas as partes
             seguidorStatus.Text = "Aguardando... (" .. math.floor(dist) .. " studs)"
             seguidorStatus.TextColor3 = Color3.fromRGB(0, 200, 100)
-            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
-                if p:IsA("BasePart") and not p.Anchored then
-                    pcall(function()
-                        p.AssemblyLinearVelocity  = Vector3.zero
-                        p.AssemblyAngularVelocity = Vector3.zero
-                    end)
-                end
-            end
             return
         end
 
-        -- Direção horizontal até o jogador
-        local dirH = toPlayer.Unit
-
-        -- Velocidade proporcional à distância (até o limite)
-        local speed = math.min(VELOCIDADE, dist * 3)
-        local vel   = dirH * speed
-
-        -- Aplica velocidade em TODAS as BaseParts do veículo
         seguidorStatus.Text = "Seguindo... (" .. math.floor(dist) .. " studs)"
         seguidorStatus.TextColor3 = Color3.fromRGB(0, 180, 255)
 
-        for _, p in ipairs(seguidorVehicle:GetDescendants()) do
-            if p:IsA("BasePart") and not p.Anchored then
-                pcall(function()
-                    p.AssemblyLinearVelocity = Vector3.new(vel.X, p.AssemblyLinearVelocity.Y, vel.Z)
-                end)
+        -- Direção horizontal para o jogador
+        local dir    = toPlayer.Unit
+        -- Quanto mover nesse frame
+        local step   = math.min(SPEED * dt, dist - DIST_PARAR)
+        local offset = dir * step
+
+        -- Rotação suave: carro olha para o jogador
+        local targetLook = CFrame.lookAt(rootPart.Position, rootPart.Position + dir)
+        local smoothRot  = rootPart.CFrame:Lerp(
+            CFrame.new(rootPart.Position) * (targetLook - targetLook.Position),
+            math.min(8 * dt, 1)
+        )
+
+        -- Move o modelo inteiro via SetPrimaryPartCFrame ou movendo cada peça
+        local moveCF = CFrame.new(offset)
+
+        if seguidorVehicle.PrimaryPart then
+            pcall(function()
+                -- Nova CFrame: posição deslocada + rotação suave
+                local newCF = CFrame.new(rootPart.Position + offset) *
+                    (smoothRot - smoothRot.Position)
+                seguidorVehicle:SetPrimaryPartCFrame(newCF)
+            end)
+        else
+            -- Fallback: move cada BasePart individualmente
+            for _, p in ipairs(seguidorVehicle:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    pcall(function()
+                        p.CFrame = p.CFrame * moveCF
+                    end)
+                end
             end
         end
-
-        -- Rotaciona o assento (raiz do carro) suavemente para olhar para o jogador
-        pcall(function()
-            local targetCF = CFrame.lookAt(seat2.Position, seat2.Position + dirH)
-            local newCF    = seat2.CFrame:Lerp(
-                CFrame.new(seat2.Position) * (targetCF - targetCF.Position),
-                math.min(ROT_SPEED * dt, 1)
-            )
-            seat2.CFrame = newCF
-        end)
     end)
 end
 
