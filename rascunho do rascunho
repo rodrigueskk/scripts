@@ -937,86 +937,70 @@ local function removerTodasLabels()
     end
 end
 
-local trackerConnections = {}  -- guarda todas as conexões para limpar
+local trackerConnections = {}
 
 local function iniciarTracker()
     trackerAtivo = true
 
-    -- Limpa conexões anteriores
     for _, c in ipairs(trackerConnections) do
         pcall(function() c:Disconnect() end)
     end
     trackerConnections = {}
 
-    -- Função que processa um jogador individualmente
-    local function processarJogador(p)
-        if p == player then return end
-        local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
-        if not deveRastrear then return end
+    local function deveRastrearP(p)
+        return p ~= player and ((trackerAlvoNome == nil) or eAlvo(p))
+    end
 
-        -- Cria label se o personagem já existe
+    local function processarJogador(p)
+        if not deveRastrearP(p) then return end
         if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             criarLabel(p)
         end
-
-        -- Monitora spawn/despawn do personagem
         local c1 = p.CharacterAdded:Connect(function(char)
-            if not trackerAtivo then return end
-            if not ((trackerAlvoNome == nil) or eAlvo(p)) then return end
-            -- Aguarda HumanoidRootPart carregar
-            char:WaitForChild("HumanoidRootPart", 5)
-            task.wait(0.2)
-            if trackerAtivo then criarLabel(p) end
+            if not trackerAtivo or not deveRastrearP(p) then return end
+            task.spawn(function()
+                char:WaitForChild("HumanoidRootPart", 8)
+                task.wait(0.3)
+                if trackerAtivo and deveRastrearP(p) then
+                    criarLabel(p)
+                end
+            end)
         end)
-
         local c2 = p.CharacterRemoving:Connect(function()
             removerLabel(p.Name)
         end)
-
         table.insert(trackerConnections, c1)
         table.insert(trackerConnections, c2)
     end
 
-    -- Processa todos os jogadores atuais
     for _, p in ipairs(Players:GetPlayers()) do
         processarJogador(p)
     end
 
-    -- Detecta novos jogadores que entram
     local c3 = Players.PlayerAdded:Connect(function(p)
-        if trackerAtivo then
-            task.wait(0.5) -- aguarda personagem inicializar
-            processarJogador(p)
-        end
+        if not trackerAtivo then return end
+        task.wait(1)
+        processarJogador(p)
     end)
     table.insert(trackerConnections, c3)
 
-    -- Detecta jogadores que saem
     local c4 = Players.PlayerRemoving:Connect(function(p)
         removerLabel(p.Name)
     end)
     table.insert(trackerConnections, c4)
 
-    -- Varredura periódica: re-verifica todos os jogadores a cada 2s
-    -- Isso corrige casos onde o personagem spawnou mas o evento não disparou
-    local c5 = task.spawn(function()
+    task.spawn(function()
         while trackerAtivo do
-            task.wait(2)
+            task.wait(1)
             if not trackerAtivo then break end
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player then
-                    local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
-                    if deveRastrear then
-                        local temLabel = trackerLabels[p.Name] and trackerLabels[p.Name].Parent ~= nil
-                        local temChar  = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                        -- Se tem personagem mas não tem label, cria
-                        if temChar and not temLabel then
-                            criarLabel(p)
-                        end
-                        -- Se tem label mas o personagem sumiu, remove
-                        if temLabel and not temChar then
-                            removerLabel(p.Name)
-                        end
+                if deveRastrearP(p) then
+                    local temLabel = trackerLabels[p.Name] and trackerLabels[p.Name].Parent ~= nil
+                    local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp and not temLabel then
+                        criarLabel(p)
+                    elseif temLabel and not hrp then
+                        removerLabel(p.Name)
                     end
                 end
             end
@@ -1027,7 +1011,6 @@ end
 local function pararTracker()
     trackerAtivo = false
     trackerAlvoNome = nil
-    -- Desconecta todas as conexões
     for _, c in ipairs(trackerConnections) do
         pcall(function() c:Disconnect() end)
     end
@@ -2165,7 +2148,7 @@ local function criarChatHubGui()
     chatHubGui = Instance.new("ScreenGui")
     chatHubGui.Name = "ComitHubChat"
     chatHubGui.ResetOnSpawn = false
-    chatHubGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    chatHubGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     chatHubGui.Parent = playerGui
 
     local win = Instance.new("Frame")
@@ -2174,7 +2157,7 @@ local function criarChatHubGui()
     win.Position = UDim2.new(1, -368, 0.5, -240)
     win.BackgroundColor3 = Color3.fromRGB(13, 13, 16)
     win.BorderSizePixel = 0
-    win.ZIndex = 100
+    win.ZIndex = 2
     local winC = Instance.new("UICorner"); winC.CornerRadius = UDim.new(0,16); winC.Parent = win
     local winS = Instance.new("UIStroke"); winS.Parent = win
     winS.Color = Color3.fromRGB(60,60,70); winS.Thickness = 1.2; winS.Transparency = 0.3
@@ -2184,7 +2167,7 @@ local function criarChatHubGui()
     topBar.Size = UDim2.new(1,0,0,42)
     topBar.BackgroundColor3 = Color3.fromRGB(18,18,22)
     topBar.BorderSizePixel = 0
-    topBar.ZIndex = 101
+    topBar.ZIndex = 3
     local topC = Instance.new("UICorner"); topC.CornerRadius = UDim.new(0,16); topC.Parent = topBar
 
     local titleLbl = Instance.new("TextLabel")
@@ -2197,7 +2180,7 @@ local function criarChatHubGui()
     titleLbl.TextColor3 = Color3.fromRGB(220,50,50)
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
     titleLbl.Text = "ComitHub Chat"
-    titleLbl.ZIndex = 102
+    titleLbl.ZIndex = 4
 
     local novoBadge = Instance.new("TextLabel")
     novoBadge.Parent = topBar
@@ -2210,7 +2193,7 @@ local function criarChatHubGui()
     novoBadge.TextColor3 = Color3.fromRGB(255,255,255)
     novoBadge.Text = "Novo!"
     novoBadge.Rotation = -10
-    novoBadge.ZIndex = 102
+    novoBadge.ZIndex = 4
     local novoBadgeC = Instance.new("UICorner"); novoBadgeC.CornerRadius = UDim.new(0,4); novoBadgeC.Parent = novoBadge
 
     local cfgBtn = Instance.new("TextButton")
@@ -2224,7 +2207,7 @@ local function criarChatHubGui()
     cfgBtn.TextColor3 = Color3.fromRGB(180,180,185)
     cfgBtn.BorderSizePixel = 0
     cfgBtn.AutoButtonColor = false
-    cfgBtn.ZIndex = 102
+    cfgBtn.ZIndex = 4
     local cfgBtnC = Instance.new("UICorner"); cfgBtnC.CornerRadius = UDim.new(0,8); cfgBtnC.Parent = cfgBtn
 
     local closeBtn = Instance.new("TextButton")
@@ -2238,7 +2221,7 @@ local function criarChatHubGui()
     closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
     closeBtn.BorderSizePixel = 0
     closeBtn.AutoButtonColor = false
-    closeBtn.ZIndex = 102
+    closeBtn.ZIndex = 4
     local closeBtnC = Instance.new("UICorner"); closeBtnC.CornerRadius = UDim.new(0,8); closeBtnC.Parent = closeBtn
     closeBtn.MouseButton1Click:Connect(function()
         if chatHubConn then chatHubConn:Disconnect(); chatHubConn = nil end
@@ -2269,7 +2252,7 @@ local function criarChatHubGui()
     cfgPanel.BackgroundColor3 = Color3.fromRGB(20,20,28)
     cfgPanel.BorderSizePixel = 0
     cfgPanel.Visible = false
-    cfgPanel.ZIndex = 500
+    cfgPanel.ZIndex = 8
     local cfgPC = Instance.new("UICorner"); cfgPC.CornerRadius = UDim.new(0,10); cfgPC.Parent = cfgPanel
     local cfgPS = Instance.new("UIStroke"); cfgPS.Parent = cfgPanel
     cfgPS.Color = Color3.fromRGB(60,60,80); cfgPS.Thickness = 1; cfgPS.Transparency = 0.4
@@ -2284,7 +2267,7 @@ local function criarChatHubGui()
     cfgTitle.Font = Enum.Font.GothamBold; cfgTitle.TextSize = 12
     cfgTitle.TextColor3 = Color3.fromRGB(255,255,255)
     cfgTitle.TextXAlignment = Enum.TextXAlignment.Left
-    cfgTitle.Text = "Configuracoes do Chat"; cfgTitle.ZIndex = 501
+    cfgTitle.Text = "Configuracoes do Chat"; cfgTitle.ZIndex = 9
 
     local bubbleChatAtivo = false
     local bubbles = {}
@@ -2292,26 +2275,26 @@ local function criarChatHubGui()
 
     local function criarToggleCfg(parent, label, default, onChange)
         local row = Instance.new("Frame"); row.Parent = parent
-        row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1; row.ZIndex = 501
+        row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1; row.ZIndex = 9
         local lbl = Instance.new("TextLabel"); lbl.Parent = row
         lbl.BackgroundTransparency = 1; lbl.Size = UDim2.new(1,-56,1,0)
         lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
         lbl.TextColor3 = Color3.fromRGB(200,200,210); lbl.Text = label
-        lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 501
+        lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 9
         local tbg = Instance.new("Frame"); tbg.Parent = row
         tbg.AnchorPoint = Vector2.new(1,0.5); tbg.Position = UDim2.new(1,0,0.5,0)
         tbg.Size = UDim2.new(0,40,0,20)
         tbg.BackgroundColor3 = default and Color3.fromRGB(0,200,100) or Color3.fromRGB(55,55,60)
-        tbg.BorderSizePixel = 0; tbg.ZIndex = 502
+        tbg.BorderSizePixel = 0; tbg.ZIndex = 10
         local tbc2 = Instance.new("UICorner"); tbc2.CornerRadius = UDim.new(1,0); tbc2.Parent = tbg
         local tkn = Instance.new("Frame"); tkn.Parent = tbg
         tkn.AnchorPoint = Vector2.new(0,0.5)
         tkn.Position = default and UDim2.new(0,22,0.5,0) or UDim2.new(0,2,0.5,0)
         tkn.Size = UDim2.new(0,16,0,16)
-        tkn.BackgroundColor3 = Color3.fromRGB(255,255,255); tkn.BorderSizePixel = 0; tkn.ZIndex = 503
+        tkn.BackgroundColor3 = Color3.fromRGB(255,255,255); tkn.BorderSizePixel = 0; tkn.ZIndex = 11
         local tknC = Instance.new("UICorner"); tknC.CornerRadius = UDim.new(1,0); tknC.Parent = tkn
         local tbtn = Instance.new("TextButton"); tbtn.Parent = tbg
-        tbtn.Size = UDim2.new(1,0,1,0); tbtn.BackgroundTransparency = 1; tbtn.Text = ""; tbtn.ZIndex = 504
+        tbtn.Size = UDim2.new(1,0,1,0); tbtn.BackgroundTransparency = 1; tbtn.Text = ""; tbtn.ZIndex = 12
         local state = default
         tbtn.MouseButton1Click:Connect(function()
             state = not state
@@ -2395,7 +2378,7 @@ local function criarChatHubGui()
     newMsgBadge.BorderSizePixel = 0
     newMsgBadge.Font = Enum.Font.GothamBold; newMsgBadge.TextSize = 11
     newMsgBadge.TextColor3 = Color3.fromRGB(255,255,255)
-    newMsgBadge.Text = ""; newMsgBadge.Visible = false; newMsgBadge.ZIndex = 110
+    newMsgBadge.Text = ""; newMsgBadge.Visible = false; newMsgBadge.ZIndex = 6
     local nmbC = Instance.new("UICorner"); nmbC.CornerRadius = UDim.new(0,10); nmbC.Parent = newMsgBadge
 
     local scroll = Instance.new("ScrollingFrame")
@@ -2406,7 +2389,7 @@ local function criarChatHubGui()
     scroll.ScrollBarThickness = 3
     scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
     scroll.CanvasSize = UDim2.new()
-    scroll.ZIndex = 101
+    scroll.ZIndex = 3
 
     local msgList = Instance.new("UIListLayout")
     msgList.Parent = scroll; msgList.Padding = UDim.new(0,4)
@@ -2421,7 +2404,7 @@ local function criarChatHubGui()
     sendBar.Size = UDim2.new(1,-16,0,44)
     sendBar.Position = UDim2.new(0,8,1,-52)
     sendBar.BackgroundColor3 = Color3.fromRGB(22,22,28)
-    sendBar.BorderSizePixel = 0; sendBar.ZIndex = 102
+    sendBar.BorderSizePixel = 0; sendBar.ZIndex = 4
     local sendBarC = Instance.new("UICorner"); sendBarC.CornerRadius = UDim.new(0,12); sendBarC.Parent = sendBar
     local sendBarS = Instance.new("UIStroke"); sendBarS.Parent = sendBar; sendBarS.Thickness = 1
     sendBarS.Color = Color3.fromRGB(60,60,70); sendBarS.Transparency = 0.4
@@ -2435,7 +2418,7 @@ local function criarChatHubGui()
     msgBox.PlaceholderText = "Escreva uma mensagem..."
     msgBox.PlaceholderColor3 = Color3.fromRGB(100,100,110)
     msgBox.ClearTextOnFocus = false; msgBox.Text = ""
-    msgBox.TextXAlignment = Enum.TextXAlignment.Left; msgBox.ZIndex = 103
+    msgBox.TextXAlignment = Enum.TextXAlignment.Left; msgBox.ZIndex = 5
 
     local sendBtn = Instance.new("TextButton")
     sendBtn.Parent = sendBar
@@ -2445,7 +2428,7 @@ local function criarChatHubGui()
     sendBtn.BackgroundTransparency = 1
     sendBtn.Text = "➤"; sendBtn.Font = Enum.Font.GothamBold
     sendBtn.TextSize = 18; sendBtn.TextColor3 = Color3.fromRGB(140,140,160)
-    sendBtn.ZIndex = 103
+    sendBtn.ZIndex = 5
 
     local confirmFrame = Instance.new("Frame")
     confirmFrame.Parent = win
@@ -2453,7 +2436,7 @@ local function criarChatHubGui()
     confirmFrame.AnchorPoint = Vector2.new(0.5,1)
     confirmFrame.Position = UDim2.new(0.5,0,1,-60)
     confirmFrame.BackgroundColor3 = Color3.fromRGB(20,20,26)
-    confirmFrame.BorderSizePixel = 0; confirmFrame.Visible = false; confirmFrame.ZIndex = 200
+    confirmFrame.BorderSizePixel = 0; confirmFrame.Visible = false; confirmFrame.ZIndex = 7
     local cfFC = Instance.new("UICorner"); cfFC.CornerRadius = UDim.new(0,12); cfFC.Parent = confirmFrame
     local cfFS = Instance.new("UIStroke"); cfFS.Parent = confirmFrame; cfFS.Thickness = 1.2
     cfFS.Color = Color3.fromRGB(80,80,100); cfFS.Transparency = 0.2
@@ -2467,20 +2450,20 @@ local function criarChatHubGui()
     cfTitle.BackgroundTransparency = 1; cfTitle.Size = UDim2.new(1,0,0,16)
     cfTitle.Font = Enum.Font.GothamBold; cfTitle.TextSize = 12
     cfTitle.TextColor3 = Color3.fromRGB(220,220,230); cfTitle.Text = "Confirmar envio:"
-    cfTitle.TextXAlignment = Enum.TextXAlignment.Left; cfTitle.ZIndex = 201
+    cfTitle.TextXAlignment = Enum.TextXAlignment.Left; cfTitle.ZIndex = 8
 
     local cfPreview = Instance.new("TextLabel"); cfPreview.Parent = confirmFrame
     cfPreview.BackgroundColor3 = Color3.fromRGB(28,28,36); cfPreview.BorderSizePixel = 0
     cfPreview.Size = UDim2.new(1,0,0,26); cfPreview.AutomaticSize = Enum.AutomaticSize.Y
     cfPreview.Font = Enum.Font.Gotham; cfPreview.TextSize = 12
     cfPreview.TextColor3 = Color3.fromRGB(255,255,255); cfPreview.Text = ""
-    cfPreview.TextWrapped = true; cfPreview.TextXAlignment = Enum.TextXAlignment.Left; cfPreview.ZIndex = 201
+    cfPreview.TextWrapped = true; cfPreview.TextXAlignment = Enum.TextXAlignment.Left; cfPreview.ZIndex = 8
     local cfPrevC = Instance.new("UICorner"); cfPrevC.CornerRadius = UDim.new(0,6); cfPrevC.Parent = cfPreview
     local cfPrevP = Instance.new("UIPadding"); cfPrevP.Parent = cfPreview
     cfPrevP.PaddingLeft = UDim.new(0,6); cfPrevP.PaddingRight = UDim.new(0,6)
 
     local cfBtnRow = Instance.new("Frame"); cfBtnRow.Parent = confirmFrame
-    cfBtnRow.Size = UDim2.new(1,0,0,30); cfBtnRow.BackgroundTransparency = 1; cfBtnRow.ZIndex = 201
+    cfBtnRow.Size = UDim2.new(1,0,0,30); cfBtnRow.BackgroundTransparency = 1; cfBtnRow.ZIndex = 8
     local cfBtnList = Instance.new("UIListLayout"); cfBtnList.Parent = cfBtnRow
     cfBtnList.FillDirection = Enum.FillDirection.Horizontal
     cfBtnList.Padding = UDim.new(0,8); cfBtnList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2489,14 +2472,14 @@ local function criarChatHubGui()
     cfConfirm.Size = UDim2.new(0.5,-4,1,0); cfConfirm.BackgroundColor3 = Color3.fromRGB(0,160,80)
     cfConfirm.BorderSizePixel = 0; cfConfirm.Font = Enum.Font.GothamBold
     cfConfirm.TextSize = 12; cfConfirm.TextColor3 = Color3.fromRGB(255,255,255)
-    cfConfirm.Text = "Enviar"; cfConfirm.AutoButtonColor = false; cfConfirm.ZIndex = 202
+    cfConfirm.Text = "Enviar"; cfConfirm.AutoButtonColor = false; cfConfirm.ZIndex = 9
     local cfConfC = Instance.new("UICorner"); cfConfC.CornerRadius = UDim.new(0,8); cfConfC.Parent = cfConfirm
 
     local cfCancel = Instance.new("TextButton"); cfCancel.Parent = cfBtnRow
     cfCancel.Size = UDim2.new(0.5,-4,1,0); cfCancel.BackgroundColor3 = Color3.fromRGB(160,40,40)
     cfCancel.BorderSizePixel = 0; cfCancel.Font = Enum.Font.GothamBold
     cfCancel.TextSize = 12; cfCancel.TextColor3 = Color3.fromRGB(255,255,255)
-    cfCancel.Text = "Cancelar envio"; cfCancel.AutoButtonColor = false; cfCancel.ZIndex = 202
+    cfCancel.Text = "Cancelar envio"; cfCancel.AutoButtonColor = false; cfCancel.ZIndex = 9
     local cfCancC = Instance.new("UICorner"); cfCancC.CornerRadius = UDim.new(0,8); cfCancC.Parent = cfCancel
 
     local cfHint = Instance.new("TextLabel"); cfHint.Parent = confirmFrame
@@ -2504,7 +2487,7 @@ local function criarChatHubGui()
     cfHint.Font = Enum.Font.Gotham; cfHint.TextSize = 10
     cfHint.TextColor3 = Color3.fromRGB(100,100,110)
     cfHint.Text = "Voce pode desabilitar isso nas configuracoes"
-    cfHint.TextXAlignment = Enum.TextXAlignment.Left; cfHint.ZIndex = 201
+    cfHint.TextXAlignment = Enum.TextXAlignment.Left; cfHint.ZIndex = 8
 
     cfCancel.MouseButton1Click:Connect(function()
         confirmFrame.Visible = false
@@ -2602,7 +2585,7 @@ local function criarChatHubGui()
         row.Parent = scroll; row.Size = UDim2.new(1,0,0,0)
         row.AutomaticSize = Enum.AutomaticSize.Y
         row.BackgroundColor3 = dados.isAmigo and Color3.fromRGB(18,30,18) or Color3.fromRGB(20,20,25)
-        row.BorderSizePixel = 0; row.ZIndex = 102
+        row.BorderSizePixel = 0; row.ZIndex = 4
         local rowC = Instance.new("UICorner"); rowC.CornerRadius = UDim.new(0,8); rowC.Parent = row
         local rowP = Instance.new("UIPadding"); rowP.Parent = row
         rowP.PaddingLeft = UDim.new(0,8); rowP.PaddingRight = UDim.new(0,8)
@@ -2611,7 +2594,7 @@ local function criarChatHubGui()
         rowL.Padding = UDim.new(0,2); rowL.SortOrder = Enum.SortOrder.LayoutOrder
 
         local nomeRow = Instance.new("Frame"); nomeRow.Parent = row
-        nomeRow.Size = UDim2.new(1,0,0,16); nomeRow.BackgroundTransparency = 1; nomeRow.ZIndex = 103
+        nomeRow.Size = UDim2.new(1,0,0,16); nomeRow.BackgroundTransparency = 1; nomeRow.ZIndex = 5
         local nomeList = Instance.new("UIListLayout"); nomeList.Parent = nomeRow
         nomeList.FillDirection = Enum.FillDirection.Horizontal
         nomeList.Padding = UDim.new(0,4); nomeList.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -2620,7 +2603,7 @@ local function criarChatHubGui()
             local ico = Instance.new("TextLabel"); ico.Parent = nomeRow
             ico.BackgroundTransparency = 1; ico.Size = UDim2.new(0,16,1,0)
             ico.Font = Enum.Font.GothamBold; ico.TextSize = 13
-            ico.TextColor3 = Color3.fromRGB(80,210,80); ico.Text = "👤"; ico.ZIndex = 104
+            ico.TextColor3 = Color3.fromRGB(80,210,80); ico.Text = "👤"; ico.ZIndex = 6
         end
 
         local nomeLbl = Instance.new("TextLabel"); nomeLbl.Parent = nomeRow
@@ -2628,7 +2611,7 @@ local function criarChatHubGui()
         nomeLbl.Font = Enum.Font.GothamBold; nomeLbl.TextSize = 12
         nomeLbl.TextColor3 = dados.isAmigo and Color3.fromRGB(80,210,80) or Color3.fromRGB(150,150,210)
         nomeLbl.Text = dados.displayName .. " (@" .. dados.nome .. ")"
-        nomeLbl.TextXAlignment = Enum.TextXAlignment.Left; nomeLbl.ZIndex = 104
+        nomeLbl.TextXAlignment = Enum.TextXAlignment.Left; nomeLbl.ZIndex = 6
 
         local msgLbl = Instance.new("TextLabel"); msgLbl.Parent = row
         msgLbl.BackgroundTransparency = 1; msgLbl.Size = UDim2.new(1,0,0,0)
@@ -2636,7 +2619,7 @@ local function criarChatHubGui()
         msgLbl.Font = Enum.Font.Gotham; msgLbl.TextSize = 12
         msgLbl.TextColor3 = Color3.fromRGB(230,230,238)
         msgLbl.Text = dados.mensagem; msgLbl.TextWrapped = true
-        msgLbl.TextXAlignment = Enum.TextXAlignment.Left; msgLbl.ZIndex = 104
+        msgLbl.TextXAlignment = Enum.TextXAlignment.Left; msgLbl.ZIndex = 6
         return row
     end
 
@@ -2650,7 +2633,7 @@ local function criarChatHubGui()
     loadMoreLbl.Font = Enum.Font.Gotham; loadMoreLbl.TextSize = 10
     loadMoreLbl.TextColor3 = Color3.fromRGB(120,120,140)
     loadMoreLbl.Text = chatViewStart > 1 and ("↑ Toque para ver mais (" .. (chatViewStart-1) .. " anteriores)") or "— Inicio do historico —"
-    loadMoreLbl.ZIndex = 102; loadMoreLbl.LayoutOrder = -999999
+    loadMoreLbl.ZIndex = 4; loadMoreLbl.LayoutOrder = -999999
     local lmlC = Instance.new("UICorner"); lmlC.CornerRadius = UDim.new(0,6); lmlC.Parent = loadMoreLbl
 
     loadMoreLbl.InputBegan:Connect(function(inp)
