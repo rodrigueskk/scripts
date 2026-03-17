@@ -827,56 +827,101 @@ local function removerTodasLabels()
     end
 end
 
+local trackerConnections = {}  -- guarda todas as conexões para limpar
+
 local function iniciarTracker()
     trackerAtivo = true
 
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
-            if deveRastrear then
-                if p.Character then
-                    criarLabel(p)
-                end
-                p.CharacterAdded:Connect(function()
-                    if trackerAtivo then
-                        task.wait(0.5)
-                        if (trackerAlvoNome == nil) or eAlvo(p) then
-                            criarLabel(p)
-                        end
-                    end
-                end)
-                p.CharacterRemoving:Connect(function()
-                    removerLabel(p.Name)
-                end)
-            end
+    -- Limpa conexões anteriores
+    for _, c in ipairs(trackerConnections) do
+        pcall(function() c:Disconnect() end)
+    end
+    trackerConnections = {}
+
+    -- Função que processa um jogador individualmente
+    local function processarJogador(p)
+        if p == player then return end
+        local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
+        if not deveRastrear then return end
+
+        -- Cria label se o personagem já existe
+        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            criarLabel(p)
         end
+
+        -- Monitora spawn/despawn do personagem
+        local c1 = p.CharacterAdded:Connect(function(char)
+            if not trackerAtivo then return end
+            if not ((trackerAlvoNome == nil) or eAlvo(p)) then return end
+            -- Aguarda HumanoidRootPart carregar
+            char:WaitForChild("HumanoidRootPart", 5)
+            task.wait(0.2)
+            if trackerAtivo then criarLabel(p) end
+        end)
+
+        local c2 = p.CharacterRemoving:Connect(function()
+            removerLabel(p.Name)
+        end)
+
+        table.insert(trackerConnections, c1)
+        table.insert(trackerConnections, c2)
     end
 
-    Players.PlayerAdded:Connect(function(p)
-        if trackerAtivo and p ~= player then
-            local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
-            if deveRastrear then
-                p.CharacterAdded:Connect(function()
-                    if trackerAtivo then
-                        task.wait(0.5)
-                        criarLabel(p)
-                    end
-                end)
-                p.CharacterRemoving:Connect(function()
-                    removerLabel(p.Name)
-                end)
-            end
+    -- Processa todos os jogadores atuais
+    for _, p in ipairs(Players:GetPlayers()) do
+        processarJogador(p)
+    end
+
+    -- Detecta novos jogadores que entram
+    local c3 = Players.PlayerAdded:Connect(function(p)
+        if trackerAtivo then
+            task.wait(0.5) -- aguarda personagem inicializar
+            processarJogador(p)
         end
     end)
+    table.insert(trackerConnections, c3)
 
-    Players.PlayerRemoving:Connect(function(p)
+    -- Detecta jogadores que saem
+    local c4 = Players.PlayerRemoving:Connect(function(p)
         removerLabel(p.Name)
+    end)
+    table.insert(trackerConnections, c4)
+
+    -- Varredura periódica: re-verifica todos os jogadores a cada 2s
+    -- Isso corrige casos onde o personagem spawnou mas o evento não disparou
+    local c5 = task.spawn(function()
+        while trackerAtivo do
+            task.wait(2)
+            if not trackerAtivo then break end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player then
+                    local deveRastrear = (trackerAlvoNome == nil) or eAlvo(p)
+                    if deveRastrear then
+                        local temLabel = trackerLabels[p.Name] and trackerLabels[p.Name].Parent ~= nil
+                        local temChar  = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                        -- Se tem personagem mas não tem label, cria
+                        if temChar and not temLabel then
+                            criarLabel(p)
+                        end
+                        -- Se tem label mas o personagem sumiu, remove
+                        if temLabel and not temChar then
+                            removerLabel(p.Name)
+                        end
+                    end
+                end
+            end
+        end
     end)
 end
 
 local function pararTracker()
     trackerAtivo = false
     trackerAlvoNome = nil
+    -- Desconecta todas as conexões
+    for _, c in ipairs(trackerConnections) do
+        pcall(function() c:Disconnect() end)
+    end
+    trackerConnections = {}
     removerTodasLabels()
 end
 
