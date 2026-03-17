@@ -718,76 +718,105 @@ createSlider(wheelSection, {
 
 -- ============================================================
 -- SEÇÃO: TAMANHO DAS RODAS
--- Busca por pasta Wheels/Wheel dentro do carro e escala todas juntas
+-- Usa Model:ScaleTo nos modelos de roda para ser visível a todos
 -- ============================================================
 local wheelSizeSection = createSection("Tamanho das Rodas")
 local wheelSizeFator   = 1.0
-local wheelOrigSizes   = {}  -- { [part] = originalSize }
+local wheelModels      = {}  -- modelos de roda encontrados
+local wheelOrigScales  = {}  -- escala original de cada modelo
 
--- Encontra a pasta de rodas dentro do veículo
-local function encontrarPastaRodas(vehicle)
-    if not vehicle then return nil end
-    -- Busca por nome Wheels, Wheel, wheels, wheel
-    local nomes = {"Wheels", "wheels", "Wheel", "wheel", "WHEELS", "WHEEL"}
-    for _, nome in ipairs(nomes) do
-        local pasta = vehicle:FindFirstChild(nome) or vehicle:FindFirstChild(nome, true)
-        if pasta then return pasta end
+local function encontrarModelosRodas(vehicle)
+    if not vehicle then return {} end
+    local modelos = {}
+    -- Busca pasta Wheels/Wheel
+    local pastaNames = {"Wheels","wheels","Wheel","wheel","WHEELS","WHEEL"}
+    local pasta = nil
+    for _, n in ipairs(pastaNames) do
+        pasta = vehicle:FindFirstChild(n, true)
+        if pasta then break end
     end
-    -- Fallback: busca por Model/Folder com filhos BasePart
-    for _, obj in ipairs(vehicle:GetChildren()) do
-        if (obj:IsA("Model") or obj:IsA("Folder")) then
-            local temRoda = false
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("BasePart") or child:IsA("MeshPart") then
-                    temRoda = true; break
+    if pasta then
+        -- Cada filho da pasta é um modelo de roda
+        for _, child in ipairs(pasta:GetChildren()) do
+            if child:IsA("Model") or child:IsA("BasePart") or child:IsA("MeshPart") then
+                table.insert(modelos, child)
+            end
+        end
+        -- Se a pasta em si for um Model, usa ela
+        if #modelos == 0 and pasta:IsA("Model") then
+            table.insert(modelos, pasta)
+        end
+    end
+    -- Fallback: busca Models com nome de roda direto no veículo
+    if #modelos == 0 then
+        for _, obj in ipairs(vehicle:GetDescendants()) do
+            if obj:IsA("Model") then
+                local n = obj.Name:upper()
+                if tagDaRoda(n) then
+                    table.insert(modelos, obj)
                 end
             end
-            if temRoda then return obj end
         end
     end
-    return nil
+    return modelos
 end
 
--- Captura tamanhos originais das rodas
 local function capturarTamanhosOriginais(vehicle)
-    wheelOrigSizes = {}
-    local pasta = encontrarPastaRodas(vehicle)
-    if not pasta then return false end
-    for _, part in ipairs(pasta:GetDescendants()) do
-        if part:IsA("BasePart") or part:IsA("MeshPart") then
-            wheelOrigSizes[part] = part.Size
+    wheelModels     = encontrarModelosRodas(vehicle)
+    wheelOrigScales = {}
+    for _, m in ipairs(wheelModels) do
+        if m:IsA("Model") then
+            -- Captura o tamanho do PrimaryPart ou do maior BasePart
+            local ref = m.PrimaryPart
+            if not ref then
+                for _, p in ipairs(m:GetDescendants()) do
+                    if p:IsA("BasePart") then ref = p; break end
+                end
+            end
+            wheelOrigScales[m] = ref and ref.Size or Vector3.new(1,1,1)
+        else
+            -- É uma BasePart direto
+            wheelOrigScales[m] = m.Size
         end
     end
-    -- Também coleta filhos diretos
-    for _, part in ipairs(pasta:GetChildren()) do
-        if part:IsA("BasePart") or part:IsA("MeshPart") then
-            wheelOrigSizes[part] = part.Size
-        end
-    end
-    return next(wheelOrigSizes) ~= nil
+    return #wheelModels > 0
 end
 
--- Aplica o fator de escala a partir dos tamanhos originais
 local function aplicarEscalaRodas(fator)
-    for part, origSize in pairs(wheelOrigSizes) do
-        if part and part.Parent then
-            pcall(function()
-                part.Size = origSize * fator
-            end)
+    for _, m in ipairs(wheelModels) do
+        if m and m.Parent then
+            if m:IsA("Model") then
+                -- ScaleTo escala o modelo inteiro visível para todos
+                pcall(function()
+                    local orig = wheelOrigScales[m]
+                    if orig then
+                        -- Calcula fator relativo ao tamanho original
+                        local currentSize = m.PrimaryPart and m.PrimaryPart.Size or orig
+                        local ratio = orig.Magnitude > 0 and (fator * orig.Magnitude) / currentSize.Magnitude or fator
+                        m:ScaleTo(fator)
+                    end
+                end)
+            else
+                -- BasePart direta
+                pcall(function()
+                    local orig = wheelOrigScales[m]
+                    if orig then m.Size = orig * fator end
+                end)
+            end
         end
     end
 end
 
 local wheelSizeSlider = createSlider(wheelSizeSection, {
-    Title = "Tamanho das Rodas",
-    Min   = 0.5,
-    Max   = 3.0,
-    Step  = 0.05,
+    Title   = "Tamanho das Rodas",
+    Min     = 0.5,
+    Max     = 3.0,
+    Step    = 0.05,
     Default = 1.0,
-    Format = "%.2fx",
+    Format  = "%.2fx",
     Changed = function(v)
         wheelSizeFator = v
-        if next(wheelOrigSizes) ~= nil then
+        if #wheelModels > 0 then
             aplicarEscalaRodas(v)
         end
     end
@@ -798,9 +827,9 @@ createButton(wheelSizeSection, "Registrar Rodas do Carro Atual", function()
     if not vehicle then mostrarToast("Entre no carro primeiro!"); return end
     local ok = capturarTamanhosOriginais(vehicle)
     if ok then
-        mostrarToast("Rodas registradas! Agora use o slider")
+        mostrarToast("Rodas registradas: " .. #wheelModels .. " encontradas")
     else
-        mostrarToast("Pasta Wheels/Wheel nao encontrada")
+        mostrarToast("Nenhum modelo de roda encontrado")
     end
 end)
 
@@ -2112,38 +2141,49 @@ local function criarChatHubGui()
     chatHubGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     chatHubGui.Parent = playerGui
 
+    -- Janela principal
     local win = Instance.new("Frame")
     win.Parent = chatHubGui
-    win.Size = UDim2.new(0, 340, 0, 430)
-    win.Position = UDim2.new(1, -358, 0.5, -215)
-    win.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+    win.Size = UDim2.new(0, 350, 0, 480)
+    win.Position = UDim2.new(1, -368, 0.5, -240)
+    win.BackgroundColor3 = Color3.fromRGB(13, 13, 16)
     win.BorderSizePixel = 0; win.ZIndex = 20
-    local wc = Instance.new("UICorner"); wc.CornerRadius = UDim.new(0,14); wc.Parent = win
-    local ws = Instance.new("UIStroke"); ws.Parent = win; ws.Thickness = 1.4
-    ws.Color = Color3.fromRGB(80,80,86); ws.Transparency = 0.35
+    local wc = Instance.new("UICorner"); wc.CornerRadius = UDim.new(0,16); wc.Parent = win
+    local ws = Instance.new("UIStroke"); ws.Parent = win; ws.Thickness = 1.2
+    ws.Color = Color3.fromRGB(60,60,70); ws.Transparency = 0.3
 
     -- Topbar
     local topBar = Instance.new("Frame")
-    topBar.Parent = win; topBar.Size = UDim2.new(1,0,0,38)
-    topBar.BackgroundColor3 = Color3.fromRGB(20,20,24); topBar.BorderSizePixel = 0
-    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(0,14); tbc.Parent = topBar
+    topBar.Parent = win; topBar.Size = UDim2.new(1,0,0,42)
+    topBar.BackgroundColor3 = Color3.fromRGB(18,18,22); topBar.BorderSizePixel = 0
+    local tbc = Instance.new("UICorner"); tbc.CornerRadius = UDim.new(0,16); tbc.Parent = topBar
 
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Parent = topBar; titleLbl.BackgroundTransparency = 1
-    titleLbl.Position = UDim2.new(0,12,0,0); titleLbl.Size = UDim2.new(1,-40,1,0)
+    titleLbl.Position = UDim2.new(0,14,0,0); titleLbl.Size = UDim2.new(1,-80,1,0)
     titleLbl.Font = Enum.Font.GothamBold; titleLbl.TextSize = 14
-    titleLbl.TextColor3 = Color3.fromRGB(255,255,255)
+    titleLbl.TextColor3 = Color3.fromRGB(220,50,50)
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Text = "Chat Hub"
+    titleLbl.Text = "ComitHub Chat"
+
+    -- Botão configurações do chat
+    local cfgBtn = Instance.new("TextButton")
+    cfgBtn.Parent = topBar; cfgBtn.Size = UDim2.new(0,28,0,28)
+    cfgBtn.Position = UDim2.new(1,-66,0.5,-14)
+    cfgBtn.BackgroundColor3 = Color3.fromRGB(30,30,36)
+    cfgBtn.Text = "⚙"; cfgBtn.Font = Enum.Font.GothamBold
+    cfgBtn.TextSize = 15; cfgBtn.TextColor3 = Color3.fromRGB(180,180,185)
+    cfgBtn.BorderSizePixel = 0; cfgBtn.AutoButtonColor = false
+    local cfgc = Instance.new("UICorner"); cfgc.CornerRadius = UDim.new(0,8); cfgc.Parent = cfgBtn
 
     local closeBtn = Instance.new("TextButton")
-    closeBtn.Parent = topBar; closeBtn.Size = UDim2.new(0,26,0,26)
-    closeBtn.Position = UDim2.new(1,-32,0.5,-13)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(35,35,40)
+    closeBtn.Parent = topBar; closeBtn.Size = UDim2.new(0,28,0,28)
+    closeBtn.Position = UDim2.new(1,-32,0.5,-14)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(30,30,36)
     closeBtn.Text = "X"; closeBtn.Font = Enum.Font.GothamBold
     closeBtn.TextSize = 12; closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
     closeBtn.BorderSizePixel = 0; closeBtn.AutoButtonColor = false
-    local cbc = Instance.new("UICorner"); cbc.CornerRadius = UDim.new(0,6); cbc.Parent = closeBtn
+    local cbc = Instance.new("UICorner"); cbc.CornerRadius = UDim.new(0,8); cbc.Parent = closeBtn
     closeBtn.MouseButton1Click:Connect(function()
         chatHubAtivo = false
         if chatHubGui then chatHubGui:Destroy(); chatHubGui = nil end
@@ -2167,25 +2207,173 @@ local function criarChatHubGui()
         end
     end)
 
+    -- Painel de configurações do chat (oculto por padrão)
+    local cfgPanel = Instance.new("Frame")
+    cfgPanel.Parent = win; cfgPanel.Size = UDim2.new(1,0,0,110)
+    cfgPanel.Position = UDim2.new(0,0,0,42)
+    cfgPanel.BackgroundColor3 = Color3.fromRGB(18,18,22)
+    cfgPanel.BorderSizePixel = 0; cfgPanel.Visible = false; cfgPanel.ZIndex = 25
+    local cfgpc = Instance.new("UICorner"); cfgpc.CornerRadius = UDim.new(0,10); cfgpc.Parent = cfgPanel
+    local cfgPad = Instance.new("UIPadding"); cfgPad.Parent = cfgPanel
+    cfgPad.PaddingLeft=UDim.new(0,12); cfgPad.PaddingRight=UDim.new(0,12)
+    cfgPad.PaddingTop=UDim.new(0,8); cfgPad.PaddingBottom=UDim.new(0,8)
+    local cfgList = Instance.new("UIListLayout"); cfgList.Parent = cfgPanel
+    cfgList.Padding = UDim.new(0,8); cfgList.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local cfgTitle = Instance.new("TextLabel"); cfgTitle.Parent = cfgPanel
+    cfgTitle.BackgroundTransparency = 1; cfgTitle.Size = UDim2.new(1,0,0,18)
+    cfgTitle.Font = Enum.Font.GothamBold; cfgTitle.TextSize = 12
+    cfgTitle.TextColor3 = Color3.fromRGB(255,255,255)
+    cfgTitle.TextXAlignment = Enum.TextXAlignment.Left
+    cfgTitle.Text = "Configuracoes do Chat"; cfgTitle.ZIndex = 26
+
+    -- Toggle BubbleChat
+    local bubbleChatAtivo = false
+    local bubbleConns = {}
+
+    local function criarToggleCfg(parent, label, default, onChange)
+        local row = Instance.new("Frame"); row.Parent = parent
+        row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1; row.ZIndex = 26
+        local lbl = Instance.new("TextLabel"); lbl.Parent = row
+        lbl.BackgroundTransparency=1; lbl.Size=UDim2.new(1,-56,1,0)
+        lbl.Font=Enum.Font.GothamMedium; lbl.TextSize=11
+        lbl.TextColor3=Color3.fromRGB(200,200,210); lbl.Text=label
+        lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=26
+        local tbg = Instance.new("Frame"); tbg.Parent=row
+        tbg.AnchorPoint=Vector2.new(1,0.5); tbg.Position=UDim2.new(1,0,0.5,0)
+        tbg.Size=UDim2.new(0,40,0,20)
+        tbg.BackgroundColor3=default and Color3.fromRGB(0,200,100) or Color3.fromRGB(55,55,60)
+        tbg.BorderSizePixel=0; tbg.ZIndex=27
+        local tbc2=Instance.new("UICorner"); tbc2.CornerRadius=UDim.new(1,0); tbc2.Parent=tbg
+        local tkn=Instance.new("Frame"); tkn.Parent=tbg
+        tkn.AnchorPoint=Vector2.new(0,0.5)
+        tkn.Position=default and UDim2.new(0,22,0.5,0) or UDim2.new(0,2,0.5,0)
+        tkn.Size=UDim2.new(0,16,0,16)
+        tkn.BackgroundColor3=Color3.fromRGB(255,255,255); tkn.BorderSizePixel=0; tkn.ZIndex=28
+        local tknc=Instance.new("UICorner"); tknc.CornerRadius=UDim.new(1,0); tknc.Parent=tkn
+        local tbtn=Instance.new("TextButton"); tbtn.Parent=tbg
+        tbtn.Size=UDim2.new(1,0,1,0); tbtn.BackgroundTransparency=1; tbtn.Text=""; tbtn.ZIndex=29
+        local state = default
+        tbtn.MouseButton1Click:Connect(function()
+            state = not state
+            if state then
+                TweenService:Create(tbg,TweenInfo.new(0.2),{BackgroundColor3=Color3.fromRGB(0,200,100)}):Play()
+                TweenService:Create(tkn,TweenInfo.new(0.2),{Position=UDim2.new(0,22,0.5,0)}):Play()
+            else
+                TweenService:Create(tbg,TweenInfo.new(0.2),{BackgroundColor3=Color3.fromRGB(55,55,60)}):Play()
+                TweenService:Create(tkn,TweenInfo.new(0.2),{Position=UDim2.new(0,2,0.5,0)}):Play()
+            end
+            if onChange then onChange(state) end
+        end)
+    end
+
+    -- BubbleChat local (mostra mensagem em cima do personagem por distância)
+    local bubbles = {}  -- { [playerName] = {gui, label} }
+    local BUBBLE_DIST = 30  -- studs máximos para mostrar
+
+    local function removerBubble(pName)
+        if bubbles[pName] then
+            pcall(function() bubbles[pName].gui:Destroy() end)
+            bubbles[pName] = nil
+        end
+    end
+
+    local function criarBubble(targetPlayer, texto)
+        removerBubble(targetPlayer.Name)
+        local char = targetPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "Bubble_"..targetPlayer.Name
+        bb.Adornee = hrp
+        bb.AlwaysOnTop = false
+        bb.Size = UDim2.new(0,200,0,40)
+        bb.StudsOffset = Vector3.new(0,3,0)
+        bb.Parent = playerGui
+
+        local bg = Instance.new("Frame"); bg.Parent = bb
+        bg.Size = UDim2.new(1,0,1,0)
+        bg.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        bg.BackgroundTransparency = 0.05; bg.BorderSizePixel = 0
+        local bgc = Instance.new("UICorner"); bgc.CornerRadius = UDim.new(0,10); bgc.Parent = bg
+
+        local lbl = Instance.new("TextLabel"); lbl.Parent = bg
+        lbl.Size = UDim2.new(1,-8,1,0); lbl.Position = UDim2.new(0,4,0,0)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.Gotham; lbl.TextSize = 12
+        lbl.TextColor3 = Color3.fromRGB(20,20,20)
+        lbl.Text = texto; lbl.TextWrapped = true
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+        bubbles[targetPlayer.Name] = {gui = bb, label = lbl, texto = texto}
+
+        -- Remove após 6 segundos
+        task.delay(6, function()
+            removerBubble(targetPlayer.Name)
+        end)
+    end
+
+    -- Atualiza visibilidade dos bubbles por distância
+    local bubbleConn = RunService.Stepped:Connect(function()
+        if not bubbleChatAtivo then return end
+        local myChar = player.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+
+        for pName, data in pairs(bubbles) do
+            local p = Players:FindFirstChild(pName)
+            if p and p.Character then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = (myHRP.Position - hrp.Position).Magnitude
+                    if dist > BUBBLE_DIST then
+                        data.label.Text = "..."
+                    else
+                        data.label.Text = data.texto
+                    end
+                    data.gui.Enabled = dist <= BUBBLE_DIST * 2
+                end
+            else
+                removerBubble(pName)
+            end
+        end
+    end)
+    table.insert(bubbleConns, bubbleConn)
+
+    criarToggleCfg(cfgPanel, "BubbleChat ao redor", false, function(state)
+        bubbleChatAtivo = state
+        if not state then
+            for pName, _ in pairs(bubbles) do removerBubble(pName) end
+        end
+    end)
+
+    criarToggleCfg(cfgPanel, "Confirmar antes de enviar", chatConfirmarEnvio, function(state)
+        chatConfirmarEnvio = state
+    end)
+
+    cfgBtn.MouseButton1Click:Connect(function()
+        cfgPanel.Visible = not cfgPanel.Visible
+    end)
+
     -- Badge de novas mensagens
     local newMsgBadge = Instance.new("TextButton")
     newMsgBadge.Parent = win
-    newMsgBadge.Size = UDim2.new(0, 150, 0, 22)
-    newMsgBadge.Position = UDim2.new(0.5, -75, 1, -28)
-    newMsgBadge.BackgroundColor3 = Color3.fromRGB(40, 100, 200)
+    newMsgBadge.Size = UDim2.new(0,170,0,24)
+    newMsgBadge.AnchorPoint = Vector2.new(0.5,1)
+    newMsgBadge.Position = UDim2.new(0.5,0,1,-52)
+    newMsgBadge.BackgroundColor3 = Color3.fromRGB(40,100,200)
     newMsgBadge.BorderSizePixel = 0
-    newMsgBadge.Font = Enum.Font.GothamBold
-    newMsgBadge.TextSize = 11
+    newMsgBadge.Font = Enum.Font.GothamBold; newMsgBadge.TextSize = 11
     newMsgBadge.TextColor3 = Color3.fromRGB(255,255,255)
-    newMsgBadge.Text = ""
-    newMsgBadge.Visible = false
-    newMsgBadge.ZIndex = 30
-    local nbc = Instance.new("UICorner"); nbc.CornerRadius = UDim.new(0,10); nbc.Parent = newMsgBadge
+    newMsgBadge.Text = ""; newMsgBadge.Visible = false; newMsgBadge.ZIndex = 30
+    local nbc3 = Instance.new("UICorner"); nbc3.CornerRadius = UDim.new(0,10); nbc3.Parent = newMsgBadge
 
-    -- ScrollingFrame
+    -- ScrollingFrame de mensagens
     local scroll = Instance.new("ScrollingFrame")
-    scroll.Parent = win; scroll.Position = UDim2.new(0,8,0,44)
-    scroll.Size = UDim2.new(1,-16,1,-52)
+    scroll.Parent = win; scroll.Position = UDim2.new(0,8,0,48)
+    scroll.Size = UDim2.new(1,-16,1,-108)
     scroll.BackgroundTransparency = 1; scroll.BorderSizePixel = 0
     scroll.ScrollBarThickness = 3
     scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -2196,12 +2384,174 @@ local function criarChatHubGui()
     msgList.SortOrder = Enum.SortOrder.LayoutOrder
 
     local msgPad = Instance.new("UIPadding"); msgPad.Parent = scroll
-    msgPad.PaddingTop = UDim.new(0,4); msgPad.PaddingBottom = UDim.new(0,4)
-    msgPad.PaddingLeft = UDim.new(0,2); msgPad.PaddingRight = UDim.new(0,2)
+    msgPad.PaddingTop=UDim.new(0,4); msgPad.PaddingBottom=UDim.new(0,4)
+    msgPad.PaddingLeft=UDim.new(0,2); msgPad.PaddingRight=UDim.new(0,2)
+
+    -- Campo de envio de mensagem
+    local sendBar = Instance.new("Frame")
+    sendBar.Parent = win; sendBar.Size = UDim2.new(1,-16,0,44)
+    sendBar.Position = UDim2.new(0,8,1,-52)
+    sendBar.BackgroundColor3 = Color3.fromRGB(22,22,28)
+    sendBar.BorderSizePixel = 0; sendBar.ZIndex = 22
+    local sbc = Instance.new("UICorner"); sbc.CornerRadius = UDim.new(0,12); sbc.Parent = sendBar
+    local sbs = Instance.new("UIStroke"); sbs.Parent = sendBar; sbs.Thickness = 1
+    sbs.Color = Color3.fromRGB(60,60,70); sbs.Transparency = 0.4
+
+    local msgBox = Instance.new("TextBox")
+    msgBox.Parent = sendBar; msgBox.Size = UDim2.new(1,-44,1,0)
+    msgBox.Position = UDim2.new(0,10,0,0)
+    msgBox.BackgroundTransparency = 1
+    msgBox.Font = Enum.Font.Gotham; msgBox.TextSize = 13
+    msgBox.TextColor3 = Color3.fromRGB(240,240,245)
+    msgBox.PlaceholderText = "Escreva uma mensagem..."
+    msgBox.PlaceholderColor3 = Color3.fromRGB(100,100,110)
+    msgBox.ClearTextOnFocus = false; msgBox.Text = ""
+    msgBox.TextXAlignment = Enum.TextXAlignment.Left; msgBox.ZIndex = 23
+
+    local sendBtn = Instance.new("TextButton")
+    sendBtn.Parent = sendBar; sendBtn.Size = UDim2.new(0,34,0,34)
+    sendBtn.AnchorPoint = Vector2.new(1,0.5)
+    sendBtn.Position = UDim2.new(1,-5,0.5,0)
+    sendBtn.BackgroundTransparency = 1
+    sendBtn.Text = "➤"; sendBtn.Font = Enum.Font.GothamBold
+    sendBtn.TextSize = 18; sendBtn.TextColor3 = Color3.fromRGB(140,140,160)
+    sendBtn.ZIndex = 23
+
+    -- Tela de confirmação de envio
+    local confirmFrame = Instance.new("Frame")
+    confirmFrame.Parent = win; confirmFrame.Size = UDim2.new(1,-20,0,130)
+    confirmFrame.AnchorPoint = Vector2.new(0.5,1)
+    confirmFrame.Position = UDim2.new(0.5,0,1,-60)
+    confirmFrame.BackgroundColor3 = Color3.fromRGB(20,20,26)
+    confirmFrame.BorderSizePixel = 0; confirmFrame.Visible = false; confirmFrame.ZIndex = 35
+    local cfc = Instance.new("UICorner"); cfc.CornerRadius = UDim.new(0,12); cfc.Parent = confirmFrame
+    local cfs = Instance.new("UIStroke"); cfs.Parent = confirmFrame; cfs.Thickness = 1.2
+    cfs.Color = Color3.fromRGB(80,80,100); cfs.Transparency = 0.2
+    local cfPad = Instance.new("UIPadding"); cfPad.Parent = confirmFrame
+    cfPad.PaddingLeft=UDim.new(0,12); cfPad.PaddingRight=UDim.new(0,12)
+    cfPad.PaddingTop=UDim.new(0,10); cfPad.PaddingBottom=UDim.new(0,10)
+    local cfList = Instance.new("UIListLayout"); cfList.Parent = confirmFrame
+    cfList.Padding = UDim.new(0,8); cfList.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local cfTitle = Instance.new("TextLabel"); cfTitle.Parent = confirmFrame
+    cfTitle.BackgroundTransparency=1; cfTitle.Size=UDim2.new(1,0,0,16)
+    cfTitle.Font=Enum.Font.GothamBold; cfTitle.TextSize=12
+    cfTitle.TextColor3=Color3.fromRGB(220,220,230); cfTitle.Text="Confirmar envio:"
+    cfTitle.TextXAlignment=Enum.TextXAlignment.Left; cfTitle.ZIndex=36
+
+    local cfMsgPreview = Instance.new("TextLabel"); cfMsgPreview.Parent = confirmFrame
+    cfMsgPreview.BackgroundColor3=Color3.fromRGB(28,28,36); cfMsgPreview.BorderSizePixel=0
+    cfMsgPreview.Size=UDim2.new(1,0,0,26); cfMsgPreview.AutomaticSize=Enum.AutomaticSize.Y
+    cfMsgPreview.Font=Enum.Font.Gotham; cfMsgPreview.TextSize=12
+    cfMsgPreview.TextColor3=Color3.fromRGB(255,255,255); cfMsgPreview.Text=""
+    cfMsgPreview.TextWrapped=true; cfMsgPreview.TextXAlignment=Enum.TextXAlignment.Left
+    cfMsgPreview.ZIndex=36
+    local cfMPc=Instance.new("UICorner"); cfMPc.CornerRadius=UDim.new(0,6); cfMPc.Parent=cfMsgPreview
+    local cfMPp=Instance.new("UIPadding"); cfMPp.Parent=cfMsgPreview
+    cfMPp.PaddingLeft=UDim.new(0,6); cfMPp.PaddingRight=UDim.new(0,6)
+
+    local cfBtnRow = Instance.new("Frame"); cfBtnRow.Parent = confirmFrame
+    cfBtnRow.Size=UDim2.new(1,0,0,30); cfBtnRow.BackgroundTransparency=1; cfBtnRow.ZIndex=36
+    local cfBtnList=Instance.new("UIListLayout"); cfBtnList.Parent=cfBtnRow
+    cfBtnList.FillDirection=Enum.FillDirection.Horizontal
+    cfBtnList.Padding=UDim.new(0,8); cfBtnList.SortOrder=Enum.SortOrder.LayoutOrder
+
+    local cfConfirm=Instance.new("TextButton"); cfConfirm.Parent=cfBtnRow
+    cfConfirm.Size=UDim2.new(0.5,-4,1,0); cfConfirm.BackgroundColor3=Color3.fromRGB(0,160,80)
+    cfConfirm.BorderSizePixel=0; cfConfirm.Font=Enum.Font.GothamBold
+    cfConfirm.TextSize=12; cfConfirm.TextColor3=Color3.fromRGB(255,255,255)
+    cfConfirm.Text="Enviar"; cfConfirm.AutoButtonColor=false; cfConfirm.ZIndex=37
+    local cfcc=Instance.new("UICorner"); cfcc.CornerRadius=UDim.new(0,8); cfcc.Parent=cfConfirm
+
+    local cfCancel=Instance.new("TextButton"); cfCancel.Parent=cfBtnRow
+    cfCancel.Size=UDim2.new(0.5,-4,1,0); cfCancel.BackgroundColor3=Color3.fromRGB(160,40,40)
+    cfCancel.BorderSizePixel=0; cfCancel.Font=Enum.Font.GothamBold
+    cfCancel.TextSize=12; cfCancel.TextColor3=Color3.fromRGB(255,255,255)
+    cfCancel.Text="Cancelar envio"; cfCancel.AutoButtonColor=false; cfCancel.ZIndex=37
+    local cfccc=Instance.new("UICorner"); cfccc.CornerRadius=UDim.new(0,8); cfccc.Parent=cfCancel
+
+    local cfHint=Instance.new("TextLabel"); cfHint.Parent=confirmFrame
+    cfHint.BackgroundTransparency=1; cfHint.Size=UDim2.new(1,0,0,14)
+    cfHint.Font=Enum.Font.Gotham; cfHint.TextSize=10
+    cfHint.TextColor3=Color3.fromRGB(100,100,110)
+    cfHint.Text="Voce pode desabilitar isso nas configuracoes"
+    cfHint.TextXAlignment=Enum.TextXAlignment.Left; cfHint.ZIndex=36
+
+    cfCancel.MouseButton1Click:Connect(function()
+        confirmFrame.Visible = false
+    end)
+
+    -- BillboardGui de mensagem do próprio jogador
+    local minhaBubble = nil
+    local function mostrarMinhaBubble(texto)
+        if minhaBubble then pcall(function() minhaBubble:Destroy() end) end
+        local myChar = player.Character
+        if not myChar then return end
+        local hrp = myChar:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        minhaBubble = Instance.new("BillboardGui")
+        minhaBubble.Adornee = hrp; minhaBubble.AlwaysOnTop = false
+        minhaBubble.Size = UDim2.new(0,200,0,40); minhaBubble.StudsOffset = Vector3.new(0,3,0)
+        minhaBubble.Parent = playerGui
+
+        local bg2 = Instance.new("Frame"); bg2.Parent = minhaBubble
+        bg2.Size=UDim2.new(1,0,1,0)
+        bg2.BackgroundColor3=Color3.fromRGB(240,240,255)
+        bg2.BackgroundTransparency=0.05; bg2.BorderSizePixel=0
+        local bg2c=Instance.new("UICorner"); bg2c.CornerRadius=UDim.new(0,10); bg2c.Parent=bg2
+
+        local lbl2=Instance.new("TextLabel"); lbl2.Parent=bg2
+        lbl2.Size=UDim2.new(1,-8,1,0); lbl2.Position=UDim2.new(0,4,0,0)
+        lbl2.BackgroundTransparency=1; lbl2.Font=Enum.Font.Gotham; lbl2.TextSize=12
+        lbl2.TextColor3=Color3.fromRGB(20,20,60); lbl2.Text=texto; lbl2.TextWrapped=true
+
+        task.delay(6, function()
+            pcall(function() minhaBubble:Destroy() end)
+            minhaBubble = nil
+        end)
+    end
+
+    -- Envio de mensagem
+    local function enviarMensagem(texto)
+        if texto == "" then return end
+        -- Envia pelo TextChatService
+        pcall(function()
+            local channel = TextChatService:FindFirstChild("TextChannels")
+            if channel then
+                local general = channel:FindFirstChild("RBXGeneral") or channel:GetChildren()[1]
+                if general and general:IsA("TextChannel") then
+                    general:SendAsync(texto)
+                end
+            end
+        end)
+        mostrarMinhaBubble(texto)
+        msgBox.Text = ""
+        confirmFrame.Visible = false
+    end
+
+    local function tentarEnviar()
+        local txt = msgBox.Text
+        if txt == "" then return end
+        if chatConfirmarEnvio then
+            cfMsgPreview.Text = '"' .. txt .. '"'
+            confirmFrame.Visible = true
+            cfConfirm.MouseButton1Click:Connect(function()
+                enviarMensagem(txt)
+            end)
+        else
+            enviarMensagem(txt)
+        end
+    end
+
+    sendBtn.MouseButton1Click:Connect(tentarEnviar)
+    msgBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then tentarEnviar() end
+    end)
 
     -- Controle de scroll
     local novasMensagens   = 0
-    local usuarioScrollado = false  -- true se o usuário scrollou para cima
+    local usuarioScrollado = false
 
     local function estaNoFundo()
         local maxY = scroll.AbsoluteCanvasSize.Y - scroll.AbsoluteSize.Y
@@ -2211,120 +2561,101 @@ local function criarChatHubGui()
     local function irParaOFundo()
         task.wait()
         scroll.CanvasPosition = Vector2.new(0, scroll.AbsoluteCanvasSize.Y)
-        novasMensagens  = 0
-        newMsgBadge.Visible = false
-        usuarioScrollado = false
+        novasMensagens = 0; newMsgBadge.Visible = false; usuarioScrollado = false
     end
 
-    newMsgBadge.MouseButton1Click:Connect(function()
-        irParaOFundo()
-    end)
+    newMsgBadge.MouseButton1Click:Connect(irParaOFundo)
 
-    -- Detecta scroll do usuário
     scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
         if estaNoFundo() then
-            usuarioScrollado = false
-            novasMensagens   = 0
-            newMsgBadge.Visible = false
+            usuarioScrollado = false; novasMensagens = 0; newMsgBadge.Visible = false
         else
             usuarioScrollado = true
         end
     end)
 
-    -- Cria uma linha de mensagem na UI
+    -- Cria linha de mensagem
     local function criarLinhaMsg(dados)
         local row = Instance.new("Frame")
         row.Parent = scroll; row.Size = UDim2.new(1,0,0,0)
         row.AutomaticSize = Enum.AutomaticSize.Y
-        row.BackgroundColor3 = dados.isAmigo and Color3.fromRGB(20,35,20) or Color3.fromRGB(22,22,26)
+        row.BackgroundColor3 = dados.isAmigo and Color3.fromRGB(18,30,18) or Color3.fromRGB(20,20,25)
         row.BorderSizePixel = 0; row.ZIndex = 22
-        local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0,8); rc.Parent = row
-        local rp = Instance.new("UIPadding"); rp.Parent = row
-        rp.PaddingLeft = UDim.new(0,8); rp.PaddingRight = UDim.new(0,8)
-        rp.PaddingTop = UDim.new(0,4); rp.PaddingBottom = UDim.new(0,4)
-        local rl = Instance.new("UIListLayout"); rl.Parent = row
-        rl.Padding = UDim.new(0,2); rl.SortOrder = Enum.SortOrder.LayoutOrder
+        local rc=Instance.new("UICorner"); rc.CornerRadius=UDim.new(0,8); rc.Parent=row
+        local rp=Instance.new("UIPadding"); rp.Parent=row
+        rp.PaddingLeft=UDim.new(0,8); rp.PaddingRight=UDim.new(0,8)
+        rp.PaddingTop=UDim.new(0,4); rp.PaddingBottom=UDim.new(0,4)
+        local rl=Instance.new("UIListLayout"); rl.Parent=row
+        rl.Padding=UDim.new(0,2); rl.SortOrder=Enum.SortOrder.LayoutOrder
 
-        local nomeRow = Instance.new("Frame"); nomeRow.Parent = row
-        nomeRow.Size = UDim2.new(1,0,0,16); nomeRow.BackgroundTransparency = 1; nomeRow.ZIndex = 22
-        local nomeList = Instance.new("UIListLayout"); nomeList.Parent = nomeRow
-        nomeList.FillDirection = Enum.FillDirection.Horizontal
-        nomeList.Padding = UDim.new(0,4); nomeList.VerticalAlignment = Enum.VerticalAlignment.Center
+        local nomeRow=Instance.new("Frame"); nomeRow.Parent=row
+        nomeRow.Size=UDim2.new(1,0,0,16); nomeRow.BackgroundTransparency=1; nomeRow.ZIndex=22
+        local nomeList=Instance.new("UIListLayout"); nomeList.Parent=nomeRow
+        nomeList.FillDirection=Enum.FillDirection.Horizontal
+        nomeList.Padding=UDim.new(0,4); nomeList.VerticalAlignment=Enum.VerticalAlignment.Center
 
         if dados.isAmigo then
-            local ico = Instance.new("TextLabel"); ico.Parent = nomeRow
-            ico.BackgroundTransparency = 1; ico.Size = UDim2.new(0,16,1,0)
-            ico.Font = Enum.Font.GothamBold; ico.TextSize = 13
-            ico.TextColor3 = Color3.fromRGB(100,220,100); ico.Text = "👤"; ico.ZIndex = 23
+            local ico=Instance.new("TextLabel"); ico.Parent=nomeRow
+            ico.BackgroundTransparency=1; ico.Size=UDim2.new(0,16,1,0)
+            ico.Font=Enum.Font.GothamBold; ico.TextSize=13
+            ico.TextColor3=Color3.fromRGB(80,210,80); ico.Text="👤"; ico.ZIndex=23
         end
 
-        local nomeLbl = Instance.new("TextLabel"); nomeLbl.Parent = nomeRow
-        nomeLbl.BackgroundTransparency = 1; nomeLbl.Size = UDim2.new(1,0,1,0)
-        nomeLbl.Font = Enum.Font.GothamBold; nomeLbl.TextSize = 12
-        nomeLbl.TextColor3 = dados.isAmigo and Color3.fromRGB(100,220,100) or Color3.fromRGB(160,160,200)
-        nomeLbl.Text = dados.displayName .. " (@" .. dados.nome .. ")"
-        nomeLbl.TextXAlignment = Enum.TextXAlignment.Left; nomeLbl.ZIndex = 23
+        local nomeLbl=Instance.new("TextLabel"); nomeLbl.Parent=nomeRow
+        nomeLbl.BackgroundTransparency=1; nomeLbl.Size=UDim2.new(1,0,1,0)
+        nomeLbl.Font=Enum.Font.GothamBold; nomeLbl.TextSize=12
+        nomeLbl.TextColor3=dados.isAmigo and Color3.fromRGB(80,210,80) or Color3.fromRGB(150,150,210)
+        nomeLbl.Text=dados.displayName.." (@"..dados.nome..")"
+        nomeLbl.TextXAlignment=Enum.TextXAlignment.Left; nomeLbl.ZIndex=23
 
-        local msgLbl = Instance.new("TextLabel"); msgLbl.Parent = row
-        msgLbl.BackgroundTransparency = 1; msgLbl.Size = UDim2.new(1,0,0,0)
-        msgLbl.AutomaticSize = Enum.AutomaticSize.Y
-        msgLbl.Font = Enum.Font.Gotham; msgLbl.TextSize = 12
-        msgLbl.TextColor3 = Color3.fromRGB(235,235,240)
-        msgLbl.Text = dados.mensagem; msgLbl.TextWrapped = true
-        msgLbl.TextXAlignment = Enum.TextXAlignment.Left; msgLbl.ZIndex = 23
+        local msgLbl=Instance.new("TextLabel"); msgLbl.Parent=row
+        msgLbl.BackgroundTransparency=1; msgLbl.Size=UDim2.new(1,0,0,0)
+        msgLbl.AutomaticSize=Enum.AutomaticSize.Y
+        msgLbl.Font=Enum.Font.Gotham; msgLbl.TextSize=12
+        msgLbl.TextColor3=Color3.fromRGB(230,230,238)
+        msgLbl.Text=dados.mensagem; msgLbl.TextWrapped=true
+        msgLbl.TextXAlignment=Enum.TextXAlignment.Left; msgLbl.ZIndex=23
         return row
     end
 
-    -- Índice de onde começamos a mostrar no histórico
+    -- TextLabel "Inicio do historico" no topo (não é botão)
     local chatViewStart = math.max(1, #chatMessages - CHAT_PAGE + 1)
 
-    -- Botão "Carregar mais" no topo
-    local loadMoreBtn = Instance.new("TextButton")
-    loadMoreBtn.Parent = scroll
-    loadMoreBtn.Size = UDim2.new(1,0,0,28)
-    loadMoreBtn.BackgroundColor3 = Color3.fromRGB(30,30,36)
-    loadMoreBtn.BorderSizePixel = 0
-    loadMoreBtn.Font = Enum.Font.GothamBold; loadMoreBtn.TextSize = 11
-    loadMoreBtn.TextColor3 = Color3.fromRGB(160,160,180)
-    loadMoreBtn.Text = chatViewStart > 1 and ("Carregar mais (" .. (chatViewStart-1) .. " anteriores)") or "Inicio do historico"
-    loadMoreBtn.ZIndex = 22
-    loadMoreBtn.LayoutOrder = -999999
-    local lmc = Instance.new("UICorner"); lmc.CornerRadius = UDim.new(0,8); lmc.Parent = loadMoreBtn
+    local loadMoreLbl = Instance.new("TextLabel")
+    loadMoreLbl.Parent = scroll
+    loadMoreLbl.Size = UDim2.new(1,0,0,22)
+    loadMoreLbl.BackgroundColor3 = Color3.fromRGB(25,25,32)
+    loadMoreLbl.BorderSizePixel = 0
+    loadMoreLbl.Font = Enum.Font.Gotham; loadMoreLbl.TextSize = 10
+    loadMoreLbl.TextColor3 = Color3.fromRGB(120,120,140)
+    loadMoreLbl.Text = chatViewStart > 1 and ("↑ Toque para ver mais (" .. (chatViewStart-1) .. " anteriores)") or "— Inicio do historico —"
+    loadMoreLbl.ZIndex = 22; loadMoreLbl.LayoutOrder = -999999
+    local lmlc=Instance.new("UICorner"); lmlc.CornerRadius=UDim.new(0,6); lmlc.Parent=loadMoreLbl
+    -- Torna clicável via InputBegan
+    loadMoreLbl.InputBegan:Connect(function(inp)
+        if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if chatViewStart <= 1 then return end
+        local novoStart = math.max(1, chatViewStart - CHAT_LOAD_MORE)
+        local prevCanvas = scroll.AbsoluteCanvasSize.Y
+        for i = chatViewStart-1, novoStart, -1 do
+            local row = criarLinhaMsg(chatMessages[i])
+            row.LayoutOrder = i
+        end
+        chatViewStart = novoStart
+        loadMoreLbl.Text = chatViewStart > 1 and ("↑ Toque para ver mais (" .. (chatViewStart-1) .. " anteriores)") or "— Inicio do historico —"
+        task.wait()
+        local delta = scroll.AbsoluteCanvasSize.Y - prevCanvas
+        scroll.CanvasPosition = Vector2.new(0, scroll.CanvasPosition.Y + delta)
+    end)
 
     -- Carrega mensagens iniciais
     for i = chatViewStart, #chatMessages do
         local row = criarLinhaMsg(chatMessages[i])
         row.LayoutOrder = i
     end
+    task.wait(0.1); irParaOFundo()
 
-    -- Scroll para baixo no início
-    task.wait(0.1)
-    irParaOFundo()
-
-    -- Carregar mais ao clicar no botão
-    loadMoreBtn.MouseButton1Click:Connect(function()
-        if chatViewStart <= 1 then
-            loadMoreBtn.Text = "Inicio do historico"
-            return
-        end
-        local novoStart = math.max(1, chatViewStart - CHAT_LOAD_MORE)
-        local prevCanvas = scroll.AbsoluteCanvasSize.Y
-
-        for i = chatViewStart - 1, novoStart, -1 do
-            local row = criarLinhaMsg(chatMessages[i])
-            row.LayoutOrder = i
-        end
-
-        chatViewStart = novoStart
-        loadMoreBtn.Text = chatViewStart > 1 and ("Carregar mais (" .. (chatViewStart-1) .. " anteriores)") or "Inicio do historico"
-
-        -- Mantém posição de scroll (não pula para cima)
-        task.wait()
-        local delta = scroll.AbsoluteCanvasSize.Y - prevCanvas
-        scroll.CanvasPosition = Vector2.new(0, scroll.CanvasPosition.Y + delta)
-    end)
-
-    -- Conecta novas mensagens ao hub
+    -- Conecta novas mensagens + BubbleChat
     chatHubConn = TextChatService.MessageReceived:Connect(function(msg)
         if not chatHubAtivo then return end
         local sender = msg.TextSource
@@ -2338,18 +2669,27 @@ local function criarChatHubGui()
         table.insert(chatMessages, dados)
         if #chatMessages > 500 then table.remove(chatMessages, 1) end
 
+        -- BubbleChat
+        if bubbleChatAtivo and sP and sP ~= player then
+            criarBubble(sP, txt)
+        end
+
         local row = criarLinhaMsg(dados)
         row.LayoutOrder = #chatMessages
 
         if usuarioScrollado then
-            -- Usuário está no histórico: mostra badge
             novasMensagens = novasMensagens + 1
-            newMsgBadge.Text = "+ " .. novasMensagens .. (novasMensagens == 1 and " mensagem nova" or " mensagens novas")
+            newMsgBadge.Text = "+ "..novasMensagens..(novasMensagens==1 and " mensagem nova" or " mensagens novas")
             newMsgBadge.Visible = true
         else
-            -- Está no fundo: auto-scroll
-            task.wait()
-            scroll.CanvasPosition = Vector2.new(0, scroll.AbsoluteCanvasSize.Y)
+            task.wait(); scroll.CanvasPosition = Vector2.new(0, scroll.AbsoluteCanvasSize.Y)
+        end
+    end)
+
+    -- Limpa conexões ao destruir
+    chatHubGui.AncestryChanged:Connect(function()
+        if not chatHubGui.Parent then
+            for _, c in ipairs(bubbleConns) do pcall(function() c:Disconnect() end) end
         end
     end)
 end
@@ -2371,7 +2711,49 @@ task.spawn(function()
     end)
 end)
 
-local chatSection = createSection("Chat Hub")
+-- Variável global para confirmação de envio (usada nas configurações)
+local chatConfirmarEnvio = false
+
+local chatSection = createSection("ComitHub Chat")
+
+-- Label vermelho "ComitHub Chat" + badge "Novo!" torto
+local chatHeaderRow = Instance.new("Frame")
+chatHeaderRow.Parent = chatSection
+chatHeaderRow.Size = UDim2.new(1,0,0,22)
+chatHeaderRow.BackgroundTransparency = 1
+
+local chatRedLabel = Instance.new("TextLabel")
+chatRedLabel.Parent = chatHeaderRow
+chatRedLabel.BackgroundTransparency = 1
+chatRedLabel.Position = UDim2.new(0,0,0,0)
+chatRedLabel.Size = UDim2.new(0,120,1,0)
+chatRedLabel.Font = Enum.Font.GothamBold
+chatRedLabel.TextSize = 13
+chatRedLabel.TextXAlignment = Enum.TextXAlignment.Left
+chatRedLabel.TextColor3 = Color3.fromRGB(220,50,50)
+chatRedLabel.Text = "ComitHub Chat"
+
+local chatNovoBadge = Instance.new("TextLabel")
+chatNovoBadge.Parent = chatHeaderRow
+chatNovoBadge.BackgroundColor3 = Color3.fromRGB(220,50,50)
+chatNovoBadge.BorderSizePixel = 0
+chatNovoBadge.Position = UDim2.new(0,124,0,2)
+chatNovoBadge.Size = UDim2.new(0,36,0,16)
+chatNovoBadge.Font = Enum.Font.GothamBold
+chatNovoBadge.TextSize = 9
+chatNovoBadge.TextColor3 = Color3.fromRGB(255,255,255)
+chatNovoBadge.Text = "Novo!"
+chatNovoBadge.Rotation = -12
+local nbc2 = Instance.new("UICorner"); nbc2.CornerRadius = UDim.new(0,4); nbc2.Parent = chatNovoBadge
+
+-- Toggle confirmação de envio nas configurações
+criarRowToggle(sScroll, "Confirmar antes de enviar",
+    "Pede confirmacao ao enviar mensagem pelo Chat Hub",
+    11, false, function(state)
+        chatConfirmarEnvio = state
+    end
+)
+
 createButton(chatSection, "Abrir Chat Hub", function()
     if chatHubGui and chatHubGui.Parent then
         mostrarToast("Chat Hub ja esta aberto"); return
