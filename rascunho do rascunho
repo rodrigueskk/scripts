@@ -1614,6 +1614,124 @@ antiFlingBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ============================================================
+-- SEÇÃO: VIDA DO PERSONAGEM
+-- ============================================================
+local vidaSection = createSection("Vida do Personagem")
+
+-- Valor padrão de MaxHealth (capturado na hora que o script carrega)
+local vidaPadrao = 100
+pcall(function()
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hum  = char:FindFirstChildOfClass("Humanoid")
+    if hum then vidaPadrao = hum.MaxHealth end
+end)
+
+-- Campo de input para o valor da vida
+local vidaInputHolder = Instance.new("Frame")
+vidaInputHolder.Parent = vidaSection
+vidaInputHolder.Size = UDim2.new(1, 0, 0, 34)
+vidaInputHolder.BackgroundColor3 = Color3.fromRGB(32, 32, 36)
+vidaInputHolder.BorderSizePixel = 0
+
+local vidaInputCorner = Instance.new("UICorner")
+vidaInputCorner.CornerRadius = UDim.new(0, 10)
+vidaInputCorner.Parent = vidaInputHolder
+
+local vidaInputStroke = Instance.new("UIStroke")
+vidaInputStroke.Parent = vidaInputHolder
+vidaInputStroke.Thickness = 1
+vidaInputStroke.Color = Color3.fromRGB(70, 70, 75)
+vidaInputStroke.Transparency = 0.45
+
+local vidaInput = Instance.new("TextBox")
+vidaInput.Parent = vidaInputHolder
+vidaInput.Size = UDim2.new(1, -12, 1, 0)
+vidaInput.Position = UDim2.new(0, 6, 0, 0)
+vidaInput.BackgroundTransparency = 1
+vidaInput.Font = Enum.Font.GothamMedium
+vidaInput.TextSize = 13
+vidaInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+vidaInput.PlaceholderText = "Valor da vida (ex: 100)"
+vidaInput.PlaceholderColor3 = Color3.fromRGB(100, 100, 105)
+vidaInput.ClearTextOnFocus = false
+vidaInput.Text = ""
+
+-- Função que aplica a vida
+local function aplicarVida(valor)
+    local num = tonumber(valor)
+    if not num then
+        mostrarToast("Digite um numero valido!")
+        return
+    end
+    num = math.clamp(math.floor(num), 1, 1e6)
+    local char = player.Character
+    if not char then mostrarToast("Personagem nao encontrado!"); return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then mostrarToast("Humanoid nao encontrado!"); return end
+    pcall(function()
+        hum.MaxHealth = num
+        hum.Health    = num
+    end)
+    mostrarToast("Vida definida: " .. num)
+end
+
+-- Botão Aplicar
+createButton(vidaSection, "Aplicar Vida", function()
+    aplicarVida(vidaInput.Text)
+end)
+
+-- Botão Resetar para o padrão
+createButton(vidaSection, "Resetar Vida (Padrao)", function()
+    local char = player.Character
+    if not char then mostrarToast("Personagem nao encontrado!"); return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then mostrarToast("Humanoid nao encontrado!"); return end
+    pcall(function()
+        hum.MaxHealth = vidaPadrao
+        hum.Health    = vidaPadrao
+    end)
+    vidaInput.Text = ""
+    mostrarToast("Vida resetada para " .. vidaPadrao)
+end)
+
+-- Reaplicar vida automaticamente ao respawnar (opcional: mantém a vida definida)
+local vidaAutoAtivo = false
+local vidaAutoBtn = createButton(vidaSection, "Auto-Vida ao Respawn: OFF", function() end)
+vidaAutoBtn.MouseButton1Click:Connect(function()
+    vidaAutoAtivo = not vidaAutoAtivo
+    if vidaAutoAtivo then
+        vidaAutoBtn.Text = "Auto-Vida ao Respawn: ON"
+        TweenService:Create(vidaAutoBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        mostrarToast("Auto-Vida ativado!")
+    else
+        vidaAutoBtn.Text = "Auto-Vida ao Respawn: OFF"
+        TweenService:Create(vidaAutoBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        mostrarToast("Auto-Vida desativado!")
+    end
+end)
+
+-- Conecta ao CharacterAdded para reaplicar a vida se Auto-Vida estiver ligado
+player.CharacterAdded:Connect(function(char)
+    if not vidaAutoAtivo then return end
+    local num = tonumber(vidaInput.Text)
+    if not num then return end
+    task.wait(0.5) -- espera o personagem carregar completamente
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function()
+            hum.MaxHealth = math.clamp(math.floor(num), 1, 1e6)
+            hum.Health    = math.clamp(math.floor(num), 1, 1e6)
+        end)
+    end
+end)
+
 -- Helper: salva tema em StringValue no PlayerGui
 local function salvarTema()
     local HttpService = game:GetService("HttpService")
