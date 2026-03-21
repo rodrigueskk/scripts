@@ -1574,6 +1574,46 @@ fpsBtn.MouseButton1Click:Connect(function()
         }):Play()
     end
 end)
+
+-- ---- Anti-Fling do Personagem ----
+-- Impede que comandos de admin ou scripts do jogo arremessem o personagem.
+-- Estratégia: monitora velocidade vertical do HRP. Se detectar fling, zera a
+-- velocidade e retorna o personagem para a última posição segura no chão.
+
+local antiFlingAtivo   = false
+local antiFlingLastPos = nil   -- última posição segura no chão
+local FLING_VEL_LIMIT  = 80   -- studs/s vertical para considerar "fling"
+local FLING_CHAO_MAX   = 5    -- distância Y do chão para salvar posição segura
+
+local function setAntiFling(state)
+    antiFlingAtivo = state
+    if not state then
+        antiFlingLastPos = nil
+    end
+end
+
+local antiFlingBtn = createButton(utilSection, "Anti-Fling: OFF", function() end)
+
+antiFlingBtn.MouseButton1Click:Connect(function()
+    antiFlingAtivo = not antiFlingAtivo
+    setAntiFling(antiFlingAtivo)
+    if antiFlingAtivo then
+        antiFlingBtn.Text = "Anti-Fling: ON"
+        TweenService:Create(antiFlingBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(0, 180, 80),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        mostrarToast("Anti-Fling ativado!")
+    else
+        antiFlingBtn.Text = "Anti-Fling: OFF"
+        TweenService:Create(antiFlingBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(32, 32, 36),
+            TextColor3       = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        mostrarToast("Anti-Fling desativado!")
+    end
+end)
+
 -- Helper: salva tema em StringValue no PlayerGui
 local function salvarTema()
     local HttpService = game:GetService("HttpService")
@@ -2959,5 +2999,81 @@ RunService.Stepped:Connect(function(_, dt)
                 seat.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
             end)
         end
+    end
+end)
+
+-- ============================================================
+-- ANTI-FLING DO PERSONAGEM
+-- Roda no RenderStepped (client-side, antes da física aplicar)
+-- Detecta velocidade vertical absurda e retorna o player ao chão
+-- ============================================================
+local antiFlingToastTimer = 0  -- evita spam de toast
+
+RunService.RenderStepped:Connect(function(dt)
+    if not antiFlingAtivo then return end
+
+    -- Não interfere enquanto estiver dentro de um veículo
+    if getVehicle() then return end
+
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    -- Não age quando morto
+    if hum.Health <= 0 then
+        antiFlingLastPos = nil
+        return
+    end
+
+    local ok, vel = pcall(function() return hrp.AssemblyLinearVelocity end)
+    if not ok then return end
+
+    -- Raio para checar proximidade ao chão
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {char}
+
+    local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -(FLING_CHAO_MAX + 2), 0), rayParams)
+    local noChao = (ray ~= nil) and ((hrp.Position.Y - ray.Position.Y) <= FLING_CHAO_MAX)
+
+    -- Salva posição segura: está no chão e velocidade normal
+    if noChao and math.abs(vel.Y) < 8 then
+        antiFlingLastPos = hrp.CFrame
+    end
+
+    -- Detecta fling: velocidade vertical acima do limite
+    local velVertAbs = math.abs(vel.Y)
+    if velVertAbs > FLING_VEL_LIMIT then
+        pcall(function()
+            hrp.AssemblyLinearVelocity  = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+
+            if antiFlingLastPos then
+                -- Volta para a última posição segura no chão
+                hrp.CFrame = antiFlingLastPos
+            else
+                -- Sem posição salva: raio para baixo para achar o chão
+                local fallback = workspace:Raycast(
+                    hrp.Position,
+                    Vector3.new(0, -500, 0),
+                    rayParams
+                )
+                if fallback then
+                    local oriCF = hrp.CFrame - hrp.CFrame.Position
+                    hrp.CFrame = CFrame.new(fallback.Position + Vector3.new(0, 3, 0)) * oriCF
+                end
+            end
+        end)
+
+        -- Toast com cooldown de 2s para não spammar
+        antiFlingToastTimer = (antiFlingToastTimer or 0) + dt
+        if antiFlingToastTimer >= 2 then
+            antiFlingToastTimer = 0
+            mostrarToast("Anti-Fling bloqueou!")
+        end
+    else
+        antiFlingToastTimer = (antiFlingToastTimer or 0) + dt
     end
 end)
