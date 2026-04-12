@@ -1,0 +1,11 @@
+GRAU OSASCORTE:
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/grau%20osascorte%202.0"))()
+
+IBICATU BASE:
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/script-ibicatu"))()
+
+IBICATU RASCUNHO 
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/rascunhos%20para%20teste"))()
+
+IBICATU RASCUNHO DO RASCUNHO
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rodrigueskk/scripts/refs/heads/main/rascunho%20do%20rascunho" ))()
