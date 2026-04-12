@@ -1,0 +1,448 @@
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local PhysicsService   = game:GetService("PhysicsService")
+
+local player    = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+player.CharacterAdded:Connect(function(char)
+	character = char
+	task.wait(0.1)
+	if flyEnabled then
+		applyNoclip(char)
+	end
+end)
+
+local workspace           = game:GetService("Workspace")
+local bloxFood            = workspace:WaitForChild("bloxFood", 15)
+
+if not bloxFood then
+	warn("[Axiel Hub] 'bloxFood' nao encontrado na Workspace!")
+	return
+end
+
+local locaisEntregaFolder = bloxFood:FindFirstChild("LocaisEntrega")
+local lancheriasFolder    = bloxFood:FindFirstChild("Lancherias")
+
+local noclipConnection = nil
+
+local function applyNoclip(char)
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+			part.CanCollide = false
+		end
+	end
+end
+
+local function startNoclip()
+	noclipConnection = RunService.Stepped:Connect(function()
+		character = player.Character
+		if not character then return end
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end)
+end
+
+local function stopNoclip()
+	if noclipConnection then
+		noclipConnection:Disconnect()
+		noclipConnection = nil
+	end
+	character = player.Character
+	if not character then return end
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = true
+		end
+	end
+end
+
+flyEnabled    = false
+local flySpeed      = 60
+local flyConnection = nil
+local bodyVelocity  = nil
+local bodyGyro      = nil
+
+local function startFly()
+	character = player.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum then return end
+
+	hum.PlatformStand = true
+
+	bodyVelocity          = Instance.new("BodyVelocity")
+	bodyVelocity.Velocity = Vector3.zero
+	bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	bodyVelocity.Parent   = hrp
+
+	bodyGyro           = Instance.new("BodyGyro")
+	bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+	bodyGyro.D         = 100
+	bodyGyro.CFrame    = hrp.CFrame
+	bodyGyro.Parent    = hrp
+
+	flyConnection = RunService.Heartbeat:Connect(function()
+		character = player.Character
+		if not character then return end
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if not rootPart or not bodyVelocity or not bodyGyro then return end
+
+		local cam     = workspace.CurrentCamera
+		local moveDir = Vector3.zero
+
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += cam.CFrame.LookVector  end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= cam.CFrame.LookVector  end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= cam.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += cam.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space)       then moveDir += Vector3.new(0,  1, 0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir += Vector3.new(0, -1, 0) end
+
+		if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
+		bodyVelocity.Velocity = moveDir * flySpeed
+		bodyGyro.CFrame       = cam.CFrame
+	end)
+
+	startNoclip()
+end
+
+local function stopFly()
+	if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+	if bodyVelocity  then bodyVelocity:Destroy()    bodyVelocity  = nil end
+	if bodyGyro      then bodyGyro:Destroy()         bodyGyro      = nil end
+
+	character = player.Character
+	if character then
+		local hum = character:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
+	end
+
+	stopNoclip()
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		flyEnabled = not flyEnabled
+		if flyEnabled then
+			startFly()
+		else
+			stopFly()
+		end
+		print("[Axiel Hub] Voo + Noclip:", flyEnabled and "ATIVADO" or "DESATIVADO")
+	end
+end)
+
+local function teleportTo(part)
+	if not part then
+		warn("[Axiel Hub] Part de teleporte nao encontrada!")
+		return false
+	end
+	character = player.Character
+	if not character then return false end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.CFrame = part.CFrame + Vector3.new(0, 5, 0)
+		return true
+	end
+	return false
+end
+
+local function getLocaisEntrega()
+	local lista = {}
+	if not locaisEntregaFolder then return lista end
+	for _, modelo in ipairs(locaisEntregaFolder:GetChildren()) do
+		local entregaPart = modelo:FindFirstChild("entrega")
+		local input       = entregaPart and entregaPart:FindFirstChild("input")
+		local mult        = modelo:FindFirstChild("Multiplicador")
+		table.insert(lista, {
+			modelo        = modelo,
+			nome          = modelo.Name,
+			entregaPart   = entregaPart,
+			input         = input,
+			multiplicador = mult,
+		})
+	end
+	return lista
+end
+
+local LANCHEIRAS = {
+	{ nome = "Ze Delivery",    nomeReal = "Zé Delivery"    },
+	{ nome = "Top 1 Pizzaria", nomeReal = "Top 1 Pizzaria" },
+	{ nome = "Vind Lanches",   nomeReal = "Vind Lanches"   },
+}
+
+local function getLancheira(nomeReal)
+	if not lancheriasFolder then
+		warn("[Axiel Hub] Pasta 'Lancherias' nao encontrada em bloxFood!")
+		return nil
+	end
+	local part = lancheriasFolder:FindFirstChild(nomeReal)
+	if not part then
+		for _, child in ipairs(lancheriasFolder:GetChildren()) do
+			if child.Name:lower() == nomeReal:lower() then
+				part = child
+				break
+			end
+		end
+	end
+	if not part then
+		warn("[Axiel Hub] '" .. nomeReal .. "' nao encontrado em Lancherias. Filhos encontrados:")
+		for _, child in ipairs(lancheriasFolder:GetChildren()) do
+			warn("  - " .. child.Name)
+		end
+		return nil
+	end
+	return {
+		part          = part,
+		nome          = part.Name,
+		input         = part:FindFirstChild("input"),
+		valorDinheiro = part:FindFirstChild("ValorDinheiro"),
+		tempoSegundos = part:FindFirstChild("TempoSegundos"),
+	}
+end
+
+local function detectarEntregaAtiva(locais)
+	for _, loc in ipairs(locais) do
+		if loc.entregaPart then
+			local pp = loc.entregaPart:FindFirstChildOfClass("ProximityPrompt")
+			if pp and pp.Enabled then return loc end
+			local hl = loc.entregaPart:FindFirstChildOfClass("Highlight")
+			if hl and hl.Enabled then return loc end
+			if loc.input then
+				local v = loc.input.Value
+				if v and v ~= "" and v ~= 0 then return loc end
+			end
+		end
+	end
+	return nil
+end
+
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+	Name            = "Axiel Hub [Grau Osascorte 2.0]",
+	LoadingTitle    = "Axiel Hub",
+	LoadingSubtitle = "Grau Osascorte 2.0",
+	ConfigurationSaving = { Enabled = false },
+	KeySystem       = false,
+})
+
+local TabVoo = Window:CreateTab("Voo e Noclip", 4483362458)
+
+TabVoo:CreateSection("Controle de Voo com Noclip")
+
+TabVoo:CreateParagraph({
+	Title   = "Atalho de Teclado",
+	Content = "LeftShift: ativa e desativa o voo e o noclip juntos.\n\nControles de voo: WASD mover | Space subir | Ctrl descer",
+})
+
+TabVoo:CreateToggle({
+	Name         = "Voar (com Noclip automatico)",
+	CurrentValue = false,
+	Flag         = "FlyToggle",
+	Callback     = function(val)
+		flyEnabled = val
+		if flyEnabled then
+			startFly()
+		else
+			stopFly()
+		end
+	end,
+})
+
+TabVoo:CreateSlider({
+	Name         = "Velocidade de Voo",
+	Range        = {10, 300},
+	Increment    = 5,
+	Suffix       = " studs/s",
+	CurrentValue = flySpeed,
+	Flag         = "FlySpeed",
+	Callback     = function(val)
+		flySpeed = val
+	end,
+})
+
+local TabLanch = Window:CreateTab("Lancheiras", 4483362458)
+
+for _, cfg in ipairs(LANCHEIRAS) do
+	local data = getLancheira(cfg.nomeReal)
+
+	TabLanch:CreateSection(cfg.nomeReal)
+
+	if not data then
+		TabLanch:CreateParagraph({
+			Title   = "Nao encontrado",
+			Content = "'" .. cfg.nomeReal .. "' nao esta na pasta Lancherias.\nVerifique o Output para ver os nomes disponiveis.",
+		})
+	else
+		TabLanch:CreateInput({
+			Name                     = "ValorDinheiro",
+			PlaceholderText          = tostring(data.valorDinheiro and data.valorDinheiro.Value or "ex: 500"),
+			RemoveTextAfterFocusLost = false,
+			Callback                 = function(val)
+				local n = tonumber(val)
+				if n and data.valorDinheiro then
+					data.valorDinheiro.Value = n
+					Rayfield:Notify({ Title = cfg.nomeReal, Content = "ValorDinheiro definido para " .. n, Duration = 3 })
+				else
+					Rayfield:Notify({ Title = "Erro", Content = "Valor invalido! Use apenas numeros.", Duration = 3 })
+				end
+			end,
+		})
+
+		TabLanch:CreateInput({
+			Name                     = "TempoSegundos",
+			PlaceholderText          = tostring(data.tempoSegundos and data.tempoSegundos.Value or "ex: 60"),
+			RemoveTextAfterFocusLost = false,
+			Callback                 = function(val)
+				local n = tonumber(val)
+				if n and data.tempoSegundos then
+					data.tempoSegundos.Value = n
+					Rayfield:Notify({ Title = cfg.nomeReal, Content = "TempoSegundos definido para " .. n, Duration = 3 })
+				else
+					Rayfield:Notify({ Title = "Erro", Content = "Valor invalido! Use apenas numeros.", Duration = 3 })
+				end
+			end,
+		})
+
+		TabLanch:CreateButton({
+			Name     = "Teleportar para " .. cfg.nomeReal,
+			Callback = function()
+				local ok = teleportTo(data.part)
+				Rayfield:Notify({
+					Title   = ok and "Teleporte" or "Erro",
+					Content = ok and ("Teleportado para " .. cfg.nomeReal) or ("Nao foi possivel teleportar para " .. cfg.nomeReal),
+					Duration = 3,
+				})
+			end,
+		})
+	end
+end
+
+local TabEntregas = Window:CreateTab("Entregas", 4483362458)
+
+TabEntregas:CreateSection("Multiplicador Global")
+
+TabEntregas:CreateInput({
+	Name                     = "Novo Multiplicador (todos os locais)",
+	PlaceholderText          = "ex: 1.5",
+	RemoveTextAfterFocusLost = false,
+	Callback                 = function(val)
+		local n = tonumber(val)
+		if not n then
+			Rayfield:Notify({ Title = "Erro", Content = "Valor invalido! Use numero (ex: 1.5)", Duration = 3 })
+			return
+		end
+		local locais = getLocaisEntrega()
+		local count  = 0
+		for _, loc in ipairs(locais) do
+			if loc.multiplicador then
+				loc.multiplicador.Value = n
+				count += 1
+			end
+		end
+		Rayfield:Notify({
+			Title    = "Multiplicador Atualizado",
+			Content  = string.format("%.2f aplicado em %d locais de entrega", n, count),
+			Duration = 4,
+		})
+	end,
+})
+
+TabEntregas:CreateSection("Teleporte para Ponto de Entrega")
+
+local locais = getLocaisEntrega()
+
+if #locais == 0 then
+	TabEntregas:CreateParagraph({
+		Title   = "Nenhum local encontrado",
+		Content = "A pasta LocaisEntrega esta vazia ou nao foi encontrada.",
+	})
+else
+	for _, loc in ipairs(locais) do
+		local multStr = loc.multiplicador and string.format("  [x%.1f]", loc.multiplicador.Value) or ""
+		TabEntregas:CreateButton({
+			Name     = loc.nome .. multStr,
+			Callback = function()
+				local ok = teleportTo(loc.entregaPart)
+				Rayfield:Notify({
+					Title    = ok and "Teleporte" or "Erro",
+					Content  = ok and ("Indo para " .. loc.nome) or ("Part 'entrega' nao encontrada em " .. loc.nome),
+					Duration = 3,
+				})
+			end,
+		})
+	end
+end
+
+TabEntregas:CreateSection("Deteccao Automatica")
+
+TabEntregas:CreateButton({
+	Name     = "Teleportar para Entrega Ativa",
+	Callback = function()
+		local ativa = detectarEntregaAtiva(getLocaisEntrega())
+		if ativa then
+			teleportTo(ativa.entregaPart)
+			local mult = ativa.multiplicador and string.format(" (x%.1f)", ativa.multiplicador.Value) or ""
+			Rayfield:Notify({ Title = "Entrega Detectada!", Content = ativa.nome .. mult, Duration = 4 })
+		else
+			Rayfield:Notify({ Title = "Nenhuma Entrega Ativa", Content = "Nenhum ponto de entrega ativo foi detectado.", Duration = 3 })
+		end
+	end,
+})
+
+local monitorEnabled = false
+local lastAtiva      = nil
+
+TabEntregas:CreateToggle({
+	Name         = "Monitor Continuo de Entrega",
+	CurrentValue = false,
+	Flag         = "MonitorToggle",
+	Callback     = function(val)
+		monitorEnabled = val
+		if not val then lastAtiva = nil end
+	end,
+})
+
+task.spawn(function()
+	while true do
+		task.wait(1.5)
+		if monitorEnabled then
+			local ativa = detectarEntregaAtiva(getLocaisEntrega())
+			if ativa and lastAtiva ~= ativa.nome then
+				lastAtiva = ativa.nome
+				local mult = ativa.multiplicador and string.format(" (x%.1f)", ativa.multiplicador.Value) or ""
+				Rayfield:Notify({ Title = "Nova Entrega Disponivel!", Content = ativa.nome .. mult, Duration = 5 })
+			elseif not ativa then
+				lastAtiva = nil
+			end
+		end
+	end
+end)
+
+task.delay(1, function()
+	Rayfield:Notify({
+		Title    = "Axiel Hub [Grau Osascorte 2.0]",
+		Content  = "Carregado! LeftShift para toggle de voo + noclip.",
+		Duration = 5,
+	})
+
+	print("[Axiel Hub] ========================================")
+	print("[Axiel Hub] Locais de entrega encontrados: " .. #locais)
+	print("[Axiel Hub] Lancherias encontradas em bloxFood > Lancherias:")
+	if lancheriasFolder then
+		for _, child in ipairs(lancheriasFolder:GetChildren()) do
+			print("  - " .. child.Name)
+		end
+	else
+		print("  [ERRO] Pasta Lancherias nao encontrada!")
+	end
+	print("[Axiel Hub] ========================================")
+end)
